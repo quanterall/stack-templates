@@ -5,7 +5,7 @@ services:
   {{name}}:
     image: gonz/quanterall-web-development:lts-16.31
     ports:
-      - 3001:3001
+      - 3000:3000
     volumes:
       - ..:/workspace:cached
     command: /bin/sh -c "while sleep 1000; do :; done"
