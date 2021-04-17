@@ -6,6 +6,12 @@ packages:
 
 allow-different-user: true
 
+{-# START_FILE .devcontainer/Dockerfile.postgres #-}
+FROM postgres:13
+
+COPY --chown=postgres:postgres ../db-scripts/* /docker-entrypoint-initdb.d/
+RUN chmod -R 755 /docker-entrypoint-initdb.d/
+
 {-# START_FILE .devcontainer/docker-compose.yaml #-}
 version: '2'
 
@@ -28,7 +34,9 @@ services:
       - postgres
 
   postgres:
-    image: postgres:13
+    build:
+      dockerfile: ./.devcontainer/Dockerfile.postgres
+      context: ..
     ports:
       - 5432:5432
     environment:
