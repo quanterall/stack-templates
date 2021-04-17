@@ -1,3 +1,11 @@
+{-# START_FILE stack.yaml #-}
+resolver: lts-16.31
+
+packages:
+- .
+
+allow-different-user: true
+
 {-# START_FILE .devcontainer/docker-compose.yaml #-}
 version: '2'
 
