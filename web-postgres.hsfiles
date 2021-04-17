@@ -45,10 +45,9 @@ networks:
 
 {-# START_FILE .devcontainer/devcontainer.json #-}
 {
+  "service": "{{name}}",
+  "workspaceFolder": "/workspace",
   "dockerComposeFile": "./docker-compose.yaml",
-  "forwardPorts": [
-    3000
-  ],
   "extensions": [
     "sjurmillidahl.ormolu-vscode",
     "dramforever.vscode-ghc-simple",
