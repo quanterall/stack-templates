@@ -65,8 +65,12 @@ networks:
   }
 }
 
-{-# START_FILE db-scripts/01-create-database.sql #-}
-CREATE DATABASE "{{name}}" WITH OWNER = "postgres";
+{-# START_FILE db-scripts/01-create-database.sh #-}
+#!/usr/bin/env sh
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d "$POSTGRES_DB"  <<-EOSQL
+  CREATE DATABASE "new-web" WITH OWNER = "postgres";
+EOSQL
 
 {-# START_FILE hie.yaml #-}
 cradle:
