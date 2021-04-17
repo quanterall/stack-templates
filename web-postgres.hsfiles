@@ -95,6 +95,8 @@ cabal.sandbox.config
 *~
 \#*
 {{name}}.cabal
+.devcontainer/postgres-data
+.devcontainer/build
 
 {-# START_FILE README.md #-}
 ## Database Setup
