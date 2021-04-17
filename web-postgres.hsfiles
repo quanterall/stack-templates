@@ -8,6 +8,8 @@ services:
       - 3000:3000
     volumes:
       - ..:/workspace:cached
+      - ./build/stack-work:/workspace/.stack-work:cached
+      - ./build/root-stack:/root/.stack:cached
     command: /bin/sh -c "while sleep 1000; do :; done"
     environment:
       - YESOD_PGUSER=postgres
