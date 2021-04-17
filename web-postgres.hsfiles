@@ -1,6 +1,45 @@
+{-# START_FILE .devcontainer/docker-compose.yaml #-}
+version: '2'
+
+services:
+  {{name}}:
+    image: gonz/quanterall-web-development:lts-16.31
+    ports:
+      - 3001:3001
+    volumes:
+      - ..:/workspace:cached
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    environment:
+      - YESOD_PGUSER=postgres
+      - YESOD_PGPASS=postgres
+      - YESOD_PGHOST=postgres
+      - YESOD_PGPORT=5432
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:13
+    ports:
+      - 5432:5432
+    environment:
+      - DEBUG=1
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+      - ../db-scripts:/docker-entrypoint-initdb.d
+
+volumes:
+  postgres-data:
+  db-scripts:
+
+networks:
+  default:
+    driver: bridge
+
 {-# START_FILE .devcontainer/devcontainer.json #-}
 {
-  "image": "gonz/quanterall-web-development",
+  "dockerComposeFile": "./docker-compose.yaml",
   "forwardPorts": [
     3000
   ],
