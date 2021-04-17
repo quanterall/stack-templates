@@ -29,10 +29,6 @@ services:
       - ./postgres-data:/var/lib/postgresql/data
       - ../db-scripts:/docker-entrypoint-initdb.d
 
-volumes:
-  postgres-data:
-  db-scripts:
-
 networks:
   default:
     driver: bridge
