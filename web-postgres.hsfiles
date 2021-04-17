@@ -52,6 +52,7 @@ networks:
 
 {-# START_FILE .devcontainer/devcontainer.json #-}
 {
+  "name": "{{name}}",
   "service": "{{name}}",
   "workspaceFolder": "/workspace",
   "dockerComposeFile": "./docker-compose.yaml",
