@@ -77,7 +77,7 @@ networks:
 #!/usr/bin/env sh
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d "$POSTGRES_DB"  <<-EOSQL
-  CREATE DATABASE "new-web" WITH OWNER = "postgres";
+  CREATE DATABASE "{{name}}" WITH OWNER = "postgres";
 EOSQL
 
 {-# START_FILE hie.yaml #-}
