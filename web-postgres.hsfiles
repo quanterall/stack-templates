@@ -13,7 +13,7 @@ COPY --chown=postgres:postgres ../db-scripts/* /docker-entrypoint-initdb.d/
 RUN chmod -R 755 /docker-entrypoint-initdb.d/
 
 {-# START_FILE .devcontainer/docker-compose.yaml #-}
-version: '2'
+version: '3'
 
 services:
   {{name}}:
