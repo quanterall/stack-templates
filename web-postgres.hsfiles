@@ -60,6 +60,9 @@ networks:
   }
 }
 
+{-# START_FILE db-scripts/01-create-database.sql #-}
+CREATE DATABASE "{{name}}" WITH OWNER = "postgres";
+
 {-# START_FILE hie.yaml #-}
 cradle:
   stack:
