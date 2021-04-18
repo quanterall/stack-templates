@@ -128,7 +128,8 @@ main = Library.main
 
 module Library where
 
-import qualified Prelude as Prelude
+import Prelude (IO)
+import qualified Prelude
 
 main :: IO ()
 main = do
