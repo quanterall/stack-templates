@@ -1,0 +1,138 @@
+{-# START_FILE stack.yaml #-}
+resolver: lts-16.31
+
+packages:
+- .
+
+allow-different-user: true
+
+{-# START_FILE .devcontainer/docker-compose.yaml #-}
+version: '3'
+
+services:
+  {{name}}:
+    image: gonz/quanterall-development:lts-16.31
+    volumes:
+      - ..:/workspace:cached
+      - ./build/stack-work:/workspace/.stack-work:cached
+    command: /bin/sh -c "while sleep 1000; do :; done"
+
+networks:
+  default:
+    driver: bridge
+
+{-# START_FILE .devcontainer/devcontainer.json #-}
+{
+  "name": "{{name}}",
+  "service": "{{name}}",
+  "workspaceFolder": "/workspace",
+  "dockerComposeFile": "./docker-compose.yaml",
+  "extensions": [
+    "sjurmillidahl.ormolu-vscode",
+    "dramforever.vscode-ghc-simple",
+    "lunaryorn.hlint",
+    "gonzooo.at-notes"
+  ],
+  "settings": {
+    "[haskell]": {
+      "editor.tabSize": 2,
+      "editor.formatOnSave": true,
+      "editor.defaultFormatter": "sjurmillidahl.ormolu-vscode",
+      "editor.renderIndentGuides": true
+    }
+  }
+}
+
+{-# START_FILE hie.yaml #-}
+cradle:
+  stack:
+      component: {{name}}:lib
+
+{-# START_FILE .dir-locals.el #-}
+((haskell-mode . ((haskell-indent-spaces . 4)
+                  (haskell-process-use-ghci . t)))
+ (hamlet-mode . ((hamlet/basic-offset . 4)
+                 (haskell-process-use-ghci . t))))
+
+{-# START_FILE .gitignore #-}
+*.hi
+*.o
+.hsenv*
+cabal-dev/
+.stack-work/
+.cabal-sandbox
+cabal.sandbox.config
+.DS_Store
+*.swp
+*~
+\#*
+{{name}}.cabal
+.devcontainer/build
+
+{-# START_FILE README.md #-}
+## {{name}}
+
+Run this project with:
+
+```bash
+$ stack run
+Hello, world!
+```
+
+{-# START_FILE package.yaml #-}
+name:    {{name}}
+version: "0.0.0"
+
+dependencies:
+
+- base >=4.9.1.0 && <5
+
+# The library contains all of our application code. The executable
+# defined below is just a thin wrapper.
+library:
+  source-dirs: src
+
+# Runnable executable for our application
+executables:
+  {{name}}:
+    main: Main.hs
+    source-dirs: app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - {{name}}
+
+# Test suite
+tests:
+  {{name}}-test:
+    main: Spec.hs
+    source-dirs: test
+    ghc-options: -Wall
+    dependencies:
+    - {{name}}
+    - hspec >=2.0.0
+
+{-# START_FILE app/Main.hs #-}
+module Main where
+
+import qualified Library as Library
+
+-- This `main` function just delegates to the library's definition of `main`
+main :: IO ()
+main = Library.main
+
+{-# START_FILE src/Library.hs #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+
+module Library where
+
+import qualified Prelude as Prelude
+
+main :: IO ()
+main = do
+  Prelude.putStrLn "Hello, World!"
+
+{-# START_FILE test/Spec.hs #-}
+{-# OPTIONS_GHC -F -pgmF hspec-discover #-}
