@@ -23,7 +23,6 @@ services:
     volumes:
       - ..:/workspace:cached
       - ./build/stack-work:/workspace/.stack-work:cached
-      - ./build/root-stack:/root/.stack:cached
     command: /bin/sh -c "while sleep 1000; do :; done"
     environment:
       - YESOD_PGUSER=postgres
@@ -43,8 +42,6 @@ services:
       - DEBUG=1
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-    volumes:
-      - ./postgres-data:/var/lib/postgresql/data
 
 networks:
   default:
