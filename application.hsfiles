@@ -46,7 +46,10 @@ networks:
 {-# START_FILE hie.yaml #-}
 cradle:
   stack:
-      component: {{name}}:lib
+      - path: ./src
+        component: {{name}}:lib
+      - path: ./app
+        component: {{name}}:exe:{{name}}-exe
 
 {-# START_FILE .gitignore #-}
 *~
