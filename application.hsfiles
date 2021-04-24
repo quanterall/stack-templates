@@ -11,7 +11,7 @@ version: '3'
 
 services:
   {{name}}:
-    image: gonz/quanterall-development:lts-16.31
+    image: gonz/quanterall-application-development:lts-16.31
     volumes:
       - ..:/workspace:cached
       - ./build/stack-work:/workspace/.stack-work:cached
