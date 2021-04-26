@@ -169,7 +169,6 @@ dependencies:
 - rio >= 0.1.12.0
 
 default-extensions:
-- AutoDeriveTypeable
 - BangPatterns
 - BinaryLiterals
 - ConstraintKinds
@@ -191,7 +190,6 @@ default-extensions:
 - InstanceSigs
 - KindSignatures
 - LambdaCase
-- MonadFailDesugaring
 - MultiParamTypeClasses
 - MultiWayIf
 - NamedFieldPuns
