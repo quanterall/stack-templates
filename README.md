@@ -29,10 +29,12 @@ add the smallest set of dependencies you need.
 
 ### `application`
 
-RIO-based application with command line parsing & logging added by default,
-likely a good choice for most non-web applications.
+[RIO](https://www.stackage.org/package/rio)-based application with command line
+parsing & logging added by default, likely a good choice for most non-web
+applications.
 
-The application layout is, again, based on `RIO` which should likely make it the
+The application layout is, again, based on
+[RIO](https://www.stackage.org/package/rio) which should likely make it the
 default choice for an application that needs/ought to keep mutable state over a
 longer execution time, as well as take advantage of `RIO` as a `Prelude`
 alternative.
