@@ -88,6 +88,7 @@ dependencies:
 - base >=4.9.1.0 && <5
 
 default-extensions:
+- ApplicativeDo
 - BangPatterns
 - BinaryLiterals
 - ConstraintKinds
@@ -98,8 +99,11 @@ default-extensions:
 - DeriveFunctor
 - DeriveGeneric
 - DeriveTraversable
+- DeriveLift
+- DerivingStrategies
 - DoAndIfThenElse
 - EmptyDataDecls
+- EmptyCase
 - ExistentialQuantification
 - FlexibleContexts
 - FlexibleInstances
