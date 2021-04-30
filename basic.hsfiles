@@ -168,8 +168,6 @@ main :: IO ()
 main = Library.main
 
 {-# START_FILE src/Library.hs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-
 module Library where
 
 import Prelude (IO)
