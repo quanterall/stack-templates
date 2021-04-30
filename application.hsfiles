@@ -109,7 +109,6 @@ import Distribution.Simple
 main = defaultMain
 
 {-# START_FILE app/Main.hs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Main (main) where
 
@@ -251,7 +250,6 @@ tests:
     - -with-rtsopts=-N
 
 {-# START_FILE src/Import.hs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 module Import
   ( module RIO
   , module Types
@@ -261,8 +259,6 @@ import RIO
 import Types
 
 {-# START_FILE src/Run.hs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE OverloadedStrings #-}
 module Run (run) where
 
 import Import
@@ -272,7 +268,6 @@ run = do
   logInfo "We're inside the application!"
 
 {-# START_FILE src/Types.hs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 module Types where
 
 import RIO
@@ -296,7 +291,6 @@ instance HasProcessContext App where
   processContextL = lens appProcessContext (\x y -> x { appProcessContext = y })
 
 {-# START_FILE src/Util.hs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 -- | Silly utility module, used to demonstrate how to write a test
 -- case.
 module Util
@@ -312,7 +306,6 @@ plus2 = (+ 2)
 {-# OPTIONS_GHC -F -pgmF hspec-discover #-}
 
 {-# START_FILE test/UtilSpec.hs #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 module UtilSpec (spec) where
 
 import Import
