@@ -134,6 +134,15 @@ default-extensions:
 - ViewPatterns
 - TypeApplications
 
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wpartial-fields
+- -Wredundant-constraints
+
 # The library contains all of our application code. The executable
 # defined below is just a thin wrapper.
 library:
