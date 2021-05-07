@@ -174,12 +174,11 @@ main = Library.main
 {-# START_FILE src/Library.hs #-}
 module Library where
 
-import Prelude (IO)
-import qualified Prelude
+import Prelude
 
 main :: IO ()
 main = do
-  Prelude.putStrLn "Hello, World!"
+  putStrLn "Hello, World!"
 
 {-# START_FILE test/Spec.hs #-}
 {-# OPTIONS_GHC -F -pgmF hspec-discover #-}
