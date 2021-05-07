@@ -31,7 +31,9 @@ networks:
     "sjurmillidahl.ormolu-vscode",
     "dramforever.vscode-ghc-simple",
     "lunaryorn.hlint",
-    "gonzooo.at-notes"
+    "gonzooo.at-notes",
+    "sleistner.vscode-fileutils",
+    "fayras.simple-new-file"
   ],
   "settings": {
     "[haskell]": {
