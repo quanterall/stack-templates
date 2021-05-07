@@ -60,7 +60,8 @@ networks:
     "bigmoon.language-yesod",
     "gonzooo.at-notes",
     "sleistner.vscode-fileutils",
-    "fayras.simple-new-file"
+    "fayras.simple-new-file",
+    "jcanero.hoogle-vscode"
   ],
   "settings": {
     "[haskell]": {
