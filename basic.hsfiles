@@ -178,15 +178,15 @@ import Prelude
 
 -- This `main` function just delegates to the library's definition of `main`
 main :: IO ()
-main = Library.main
+main = Library.runMain
 
 {-# START_FILE src/Library.hs #-}
 module Library where
 
 import Prelude
 
-main :: IO ()
-main = do
+runMain :: IO ()
+runMain = do
   putStrLn "Hello, World!"
 
 {-# START_FILE test/Spec.hs #-}
