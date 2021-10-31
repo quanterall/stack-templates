@@ -500,6 +500,7 @@ dependencies:
 - yesod-auth
 - yesod-static
 - yesod-form
+- yesod-newsfeed
 - classy-prelude
 - classy-prelude-conduit
 - bytestring
@@ -532,6 +533,7 @@ dependencies:
 - case-insensitive
 - wai
 - foreign-store
+- http-types
 
 # The library contains all of our application code. The executable
 # defined below is just a thin wrapper.
@@ -10821,3 +10823,22 @@ createUser ident = runDB $ do
         , emailVerkey = Nothing
         }
     return user
+
+{-# START_FILE src/ClassyPrelude/Yesod.hs #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
+module ClassyPrelude.Yesod
+  ( module X,
+  )
+where
+
+import ClassyPrelude.Conduit as X hiding (Handler (..), delete, deleteBy)
+import Data.Default as X (Default (..))
+import Database.Persist.Sql as X (SqlBackend, SqlPersistT, runMigration)
+import Network.HTTP.Client.Conduit as X
+import Network.HTTP.Types as X
+import Yesod as X hiding (Header, parseTime)
+import Yesod.Feed as X
+import Yesod.Static as X
