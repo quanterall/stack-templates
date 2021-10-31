@@ -1,5 +1,5 @@
 {-# START_FILE stack.yaml #-}
-resolver: lts-16.31
+resolver: lts-18.14
 
 packages:
 - .
@@ -17,7 +17,7 @@ version: '3'
 
 services:
   {{name}}:
-    image: gonz/quanterall-web-development:lts-16.31
+    image: gonz/quanterall-web-development:lts-18.14
     ports:
       - 3000:3000
     volumes:
@@ -495,35 +495,34 @@ version: "0.0.0"
 dependencies:
 
 - base >=4.9.1.0 && <5
-- yesod >=1.6 && <1.7
-- yesod-core >=1.6 && <1.7
-- yesod-auth >=1.6 && <1.7
-- yesod-static >=1.6 && <1.7
-- yesod-form >=1.6 && <1.7
-- classy-prelude >=1.5 && <1.6
-- classy-prelude-conduit >=1.5 && <1.6
-- classy-prelude-yesod >=1.5 && <1.6
-- bytestring >=0.10 && <0.11
-- text >=0.11 && <2.0
-- persistent >=2.9 && <2.11
-- persistent-postgresql >=2.9 && <2.11
-- persistent-template >=2.5 && <2.9
+- yesod
+- yesod-core
+- yesod-auth
+- yesod-static
+- yesod-form
+- classy-prelude
+- classy-prelude-conduit
+- bytestring
+- text
+- persistent
+- persistent-postgresql
+- persistent-template
 - template-haskell
-- shakespeare >=2.0 && <2.1
-- hjsmin >=0.1 && <0.3
-- monad-control >=0.3 && <1.1
-- wai-extra >=3.0 && <3.1
-- yaml >=0.11 && <0.12
-- http-client-tls >=0.3 && <0.4
-- http-conduit >=2.3 && <2.4
-- directory >=1.1 && <1.4
-- warp >=3.0 && <3.4
+- shakespeare
+- hjsmin
+- monad-control
+- wai-extra
+- yaml
+- http-client-tls
+- http-conduit
+- directory
+- warp
 - data-default
-- aeson >=1.4 && <1.5
-- conduit >=1.0 && <2.0
-- monad-logger >=0.3 && <0.4
-- fast-logger >=2.2 && <3.1
-- wai-logger >=2.2 && <2.4
+- aeson
+- conduit
+- monad-logger
+- fast-logger
+- wai-logger
 - file-embed
 - safe
 - unordered-containers
@@ -1274,19 +1273,22 @@ share [mkPersist sqlSettings, mkMigrate "migrateAll"]
 -- declared in the Foundation.hs file.
 module Settings where
 
-import           ClassyPrelude.Yesod
+import           Data.Default (def)
 import qualified Control.Exception           as Exception
-import           Data.Aeson                  (Result (..), fromJSON, withObject,
-                                              (.!=), (.:?))
+import           Data.Aeson                  (Result (..), FromJSON(..), withObject,
+                                              (.!=), (.:?), (.:), Value(..), fromJSON)
 import           Data.FileEmbed              (embedFile)
 import           Data.Yaml                   (decodeEither')
 import           Database.Persist.Postgresql (PostgresConf)
 import           Language.Haskell.TH.Syntax  (Exp, Name, Q)
 import           Network.Wai.Handler.Warp    (HostPreference)
+import           RIO
 import           Yesod.Default.Config2       (applyEnvValue, configSettingsYml)
 import           Yesod.Default.Util          (WidgetFileSettings,
                                               widgetFileNoReload,
                                               widgetFileReload)
+import           Yesod.Static (CombineSettings, Route, Static,
+                               combineStylesheets', combineScripts')
 
 -- | Runtime settings to configure this application. These settings can be
 -- loaded from various sources: defaults, environment variables, config files,
