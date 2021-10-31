@@ -534,6 +534,7 @@ dependencies:
 - wai
 - foreign-store
 - http-types
+- rio
 
 # The library contains all of our application code. The executable
 # defined below is just a thin wrapper.
@@ -1238,6 +1239,7 @@ import Yesod.Core.Types      as Import (loggerSet)
 import Yesod.Default.Config2 as Import
 
 {-# START_FILE src/Model.hs #-}
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE EmptyDataDecls             #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTs                      #-}
