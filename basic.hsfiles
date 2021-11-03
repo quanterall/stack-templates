@@ -1,5 +1,5 @@
 {-# START_FILE stack.yaml #-}
-resolver: lts-16.31
+resolver: lts-18.14
 
 packages:
 - .
@@ -11,7 +11,7 @@ version: '3'
 
 services:
   {{name}}:
-    image: gonz/quanterall-development:lts-16.31
+    image: gonz/quanterall-development:lts-18.14
     volumes:
       - ..:/workspace:cached
       - ./build/stack-work:/workspace/.stack-work:cached
