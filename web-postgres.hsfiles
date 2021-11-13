@@ -78,6 +78,7 @@ networks:
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d "$POSTGRES_DB"  <<-EOSQL
   CREATE DATABASE "{{name}}" WITH OWNER = "postgres";
+  CREATE DATABASE "{{name_test}} WITH OWNER = "postgres";
 EOSQL
 
 {-# START_FILE hie.yaml #-}
