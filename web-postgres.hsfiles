@@ -61,7 +61,8 @@ networks:
     "gonzooo.at-notes",
     "sleistner.vscode-fileutils",
     "fayras.simple-new-file",
-    "jcanero.hoogle-vscode"
+    "jcanero.hoogle-vscode",
+    "mel-brown.haskell-yesod-quasiquotes"
   ],
   "settings": {
     "[haskell]": {
