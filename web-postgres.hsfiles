@@ -548,12 +548,14 @@ library:
     then:
       ghc-options:
       - -Wall
+      - -Werror
       - -fwarn-tabs
       - -O0
       cpp-options: -DDEVELOPMENT
     else:
       ghc-options:
       - -Wall
+      - -Werror
       - -fwarn-tabs
       - -O2
 
