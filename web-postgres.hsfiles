@@ -551,6 +551,7 @@ library:
       - -Werror
       - -fwarn-tabs
       - -O0
+      - -Wwarn=deprecations
       cpp-options: -DDEVELOPMENT
     else:
       ghc-options:
@@ -558,6 +559,7 @@ library:
       - -Werror
       - -fwarn-tabs
       - -O2
+      - -Wwarn=deprecations
 
 # Runnable executable for our application
 executables:

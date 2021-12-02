@@ -224,6 +224,7 @@ ghc-options:
 - -Wincomplete-uni-patterns
 - -Wpartial-fields
 - -Wredundant-constraints
+- -Wwarn=deprecations
 
 library:
   source-dirs: src
