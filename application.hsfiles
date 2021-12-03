@@ -217,7 +217,6 @@ default-extensions:
 
 ghc-options:
 - -Wall
-- -Werror
 - -Wcompat
 - -Widentities
 - -Wincomplete-record-updates
@@ -225,6 +224,7 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 - -Wwarn=deprecations
+- -Werror=incomplete-patterns
 
 library:
   source-dirs: src

@@ -552,14 +552,15 @@ library:
       - -fwarn-tabs
       - -O0
       - -Wwarn=deprecations
+      - -Werror=incomplete-patterns
       cpp-options: -DDEVELOPMENT
     else:
       ghc-options:
       - -Wall
-      - -Werror
       - -fwarn-tabs
       - -O2
       - -Wwarn=deprecations
+      - -Werror=incomplete-patterns
 
 # Runnable executable for our application
 executables:

@@ -137,7 +137,6 @@ default-extensions:
 
 ghc-options:
 - -Wall
-- -Werror
 - -Wcompat
 - -Widentities
 - -Wincomplete-record-updates
@@ -145,6 +144,7 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 - -Wwarn=deprecations
+- -Werror=incomplete-patterns
 
 # The library contains all of our application code. The executable
 # defined below is just a thin wrapper.
