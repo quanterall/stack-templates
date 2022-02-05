@@ -10911,7 +10911,7 @@ import qualified Prelude
 	// List of extensions which should be recommended for users of this workspace.
 	"recommendations": [
 		"sjurmillidahl.ormolu-vscode",
-    "dramforever.vscode-ghc-simple"
+    "dramforever.vscode-ghc-simple",
     "lunaryorn.hlint",
     "gonzooo.at-notes",
     "sleistner.vscode-fileutils",
