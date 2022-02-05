@@ -392,7 +392,7 @@ import qualified Prelude
 	"recommendations": [
 		"sjurmillidahl.ormolu-vscode",
     "dramforever.vscode-ghc-simple",
-    "lunaryorn.hlint",
+    "hoovercj.haskell-linter",
     "gonzooo.at-notes",
     "sleistner.vscode-fileutils",
     "fayras.simple-new-file",
