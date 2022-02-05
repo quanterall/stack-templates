@@ -382,3 +382,22 @@ in (import ./default.nix).shellFor {
 import qualified Prelude
 :def hoogle \x -> Prelude.pure Prelude.$ ":!hoogle " Prelude.<> x
 :set prompt "Q> "
+
+{-# START_FILE .vscode/extensions.json #-}
+{
+	// See https://go.microsoft.com/fwlink/?LinkId=827846 to learn about workspace recommendations.
+	// Extension identifier format: ${publisher}.${name}. Example: vscode.csharp
+
+	// List of extensions which should be recommended for users of this workspace.
+	"recommendations": [
+		"sjurmillidahl.ormolu-vscode",
+    "dramforever.vscode-ghc-simple"
+    "lunaryorn.hlint",
+    "gonzooo.at-notes",
+    "sleistner.vscode-fileutils",
+    "fayras.simple-new-file",
+    "jcanero.hoogle-vscode"
+	],
+	// List of extensions recommended by VS Code that should not be recommended for users of this workspace.
+	"unwantedRecommendations": []
+}
