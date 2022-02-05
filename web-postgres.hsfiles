@@ -119,7 +119,6 @@ cabal.sandbox.config
 *.keter
 *~
 \#*
-{{name}}.cabal
 .devcontainer/postgres-data
 .devcontainer/build
 
