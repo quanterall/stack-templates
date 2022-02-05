@@ -6,6 +6,10 @@ packages:
 
 allow-different-user: true
 
+nix:
+  enable: true
+  packages: []
+
 {-# START_FILE .devcontainer/Dockerfile.postgres #-}
 FROM postgres:13
 
@@ -10852,3 +10856,56 @@ import Network.HTTP.Types as X
 import Yesod as X hiding (Header, parseTime)
 import Yesod.Feed as X
 import Yesod.Static as X
+
+{-# START_FILE default.nix #-}
+let
+  # Read in the Niv sources
+  sources = import ./nix/sources.nix {};
+  # If ./nix/sources.nix file is not found run:
+  #   niv init
+  #   niv add input-output-hk/haskell.nix -n haskellNix
+
+  # Fetch the haskell.nix commit we have pinned with Niv
+  haskellNix = import sources.haskellNix {};
+  # If haskellNix is not found run:
+  #   niv add input-output-hk/haskell.nix -n haskellNix
+
+  # Import nixpkgs and pass the haskell.nix provided nixpkgsArgs
+  pkgs = import
+    # haskell.nix provides access to the nixpkgs pins which are used by our CI,
+    # hence you will be more likely to get cache hits when using these.
+    # But you can also just use your own, e.g. '<nixpkgs>'.
+    haskellNix.sources.nixpkgs-unstable
+    # These arguments passed to nixpkgs, include some patches and also
+    # the haskell.nix functionality itself as an overlay.
+    haskellNix.nixpkgsArgs;
+in pkgs.haskell-nix.project {
+  # 'cleanGit' cleans a source directory based on the files known by git
+  src = pkgs.haskell-nix.haskellLib.cleanGit {
+    name = "{{name}}";
+    src = ./.;
+  };
+}
+
+{-# START_FILE shell.nix #-}
+let
+  pkgs = import <nixpkgs> { };
+in (import ./default.nix).shellFor {
+  withHoogle = true;
+
+  tools = {
+    cabal = "3.2.0.0";
+    hlint = "latest";
+    ormolu = "0.3.1.0";
+  };
+
+  exactDeps = true;
+}
+
+{-# START_FILE .ghci #-}
+:set -package pretty-simple
+:set -XOverloadedStrings
+:set -interactive-print=Text.Pretty.Simple.pPrint
+import qualified Prelude
+:def hoogle \x -> Prelude.pure Prelude.$ ":!hoogle " Prelude.<> x
+:set prompt "Q> "
