@@ -486,10 +486,9 @@ nix:
 {-# START_FILE test/UtilSpec.hs #-}
 module UtilSpec (spec) where
 
-import Import
-import Util
 import Test.Hspec
 import Test.Hspec.QuickCheck
+import Qtility
 
 spec :: Spec
 spec = do
@@ -502,17 +501,18 @@ module ServerSpec where
 import Database
 import Database.Persist (Entity (..))
 import Database.Persist.Sql (BackendKey (..))
-import Library
 import Network.Wai.Test (SResponse (..))
 import Qtility
 import RIO.Time (fromGregorian)
+import Run
 import Test.Hspec
 import Test.Hspec.Wai
 import TestUtilities
+import Types
 
 spec :: Spec
 spec = do
-  (state, app) <- runIO createApplication
+  (state, app) <- runIO $ createApplication Options {_optionsPort = 8888, _optionsVerbose = False}
   around_ (setupServer state app) $ do
     with (pure app) $ do
       describe "GET /sprints" $ do
