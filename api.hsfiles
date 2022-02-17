@@ -338,7 +338,7 @@ dependencies:
 - rio
 - servant
 - servant-server
-- qtility
+#- qtility
 - wai
 - warp
 - persistent
