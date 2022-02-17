@@ -1,0 +1,751 @@
+{-# START_FILE app/Main.hs #-}
+{-# LANGUAGE TemplateHaskell #-}
+
+import Options.Applicative.Simple
+import qualified Paths_{{name-as-varid}}
+import Qtility
+import RIO.Process
+import Run
+import Types
+
+main :: IO ()
+main = do
+  (options, ()) <-
+    simpleOptions
+      $(simpleVersion Paths_{{name-as-varid}}.version)
+      "Header for command line arguments"
+      "Program description, also for command line arguments"
+      ( Options
+          <$> switch
+            ( long "verbose"
+                <> short 'v'
+                <> help "Verbose output?"
+            )
+          <*> option
+            auto
+            ( long "port"
+                <> short 'p'
+                <> help "Port to listen on"
+                <> value 3000
+            )
+      )
+      empty
+  runMain options
+
+{-# START_FILE src/Run.hs #-}
+module Run where
+
+import API
+import Control.Monad.Logger
+import Database (migrateAll)
+import Database.Persist.Postgresql (createPostgresqlPool, runSqlPool)
+import Database.Persist.Sql (runMigration)
+import Network.Wai (Application)
+import Network.Wai.Handler.Warp (run)
+import Qtility
+import Types
+
+runMain :: Options -> IO ()
+runMain options = do
+  runServer options
+
+runServer :: Options -> IO ()
+runServer options = do
+  logOptions <- logOptionsHandle stdout (options ^. optionsVerbose)
+  withLogFunc logOptions $ \logFunc -> do
+    pool <-
+      runStdoutLoggingT $
+        createPostgresqlPool
+          "host=localhost port=5432 user=postgres password=postgres dbname={{name}}"
+          10
+    let initialState = App {_appConnectionPool = pool, _appLogFunc = logFunc, _appOptions = options}
+    runSqlPool (runMigration migrateAll) pool
+    run (options ^. optionsPort) $ application initialState
+
+createApplication :: Options -> IO (App, Application)
+createApplication options = do
+  pool <-
+    runNoLoggingT $
+      createPostgresqlPool
+        "host=localhost port=5432 user=postgres password=postgres dbname={{name}}-test"
+        10
+  pure
+    ( App {_appConnectionPool = pool, _appLogFunc = mempty, _appOptions = options},
+      application $ App {_appConnectionPool = pool, _appLogFunc = mempty, _appOptions = options}
+    )
+
+{-# START_FILE src/API.hs #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+
+module API where
+
+import Database
+import Database.Persist (Entity)
+import Handlers
+import Qtility hiding (Handler)
+import Servant
+import Types
+
+type API = "sprints" :> SprintsAPI
+
+type SprintsAPI =
+  Get '[JSON] [Entity Sprint]
+    :<|> ReqBody '[JSON] Sprint :> Post '[JSON] (Entity Sprint)
+    :<|> DeleteNoContent
+    :<|> SprintAPI
+
+type SprintAPI =
+  Capture "sprintId" SprintId :> Get '[JSON] Sprint
+    :<|> Capture "sprintId" SprintId :> ReqBody '[JSON] Sprint :> Put '[JSON] Sprint
+    :<|> Capture "sprintId" SprintId :> DeleteNoContent
+    :<|> SprintEventsAPI
+
+type SprintEventsAPI =
+  Capture "sprintId" SprintId :> "events" :> Get '[JSON] [Entity SprintEvent]
+    :<|> Capture "sprintId" SprintId
+      :> "events"
+      :> ReqBody '[JSON] SprintEvent
+      :> Post '[JSON] (Entity SprintEvent)
+    :<|> Capture "sprintId" SprintId
+      :> "events"
+      :> DeleteNoContent
+    :<|> Capture "sprintId" SprintId
+      :> "events"
+      :> Capture "eventId" SprintEventId
+      :> DeleteNoContent
+    :<|> Capture "sprintId" SprintId
+      :> "events"
+      :> Capture "eventId" SprintEventId
+      :> ReqBody '[JSON] SprintEvent
+      :> Put '[JSON] SprintEvent
+
+server :: ServerT API AppM
+server =
+  getSprints
+    :<|> addSprint
+    :<|> (clearSprints >> pure NoContent)
+    :<|> getSprint
+    :<|> updateSprint
+    :<|> (\id' -> deleteSprint id' >> pure NoContent)
+    :<|> getSprintEvents
+    :<|> addSprintEvent
+    :<|> (\id' -> clearSprintEvents id' >> pure NoContent)
+    :<|> (\_id' eid -> deleteSprintEvent eid >> pure NoContent)
+    :<|> const updateSprintEvent
+
+appMServer :: App -> Server API
+appMServer initialState = hoistServer @API Proxy (runRIO initialState) server
+
+application :: App -> Application
+application initialState = do
+  serve @API Proxy $ appMServer initialState
+
+{-# START_FILE src/Database.hs #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
+
+module Database where
+
+import Database.Persist.Sql
+import Database.Persist.TH
+import OrphanInstances ()
+import Qtility
+import RIO.Time (Day)
+import Types
+
+class HasSqlConnectionPool env where
+  sqlConnectionPoolL :: Lens' env ConnectionPool
+
+instance HasSqlConnectionPool App where
+  sqlConnectionPoolL = appConnectionPool
+
+instance HasSqlConnectionPool ConnectionPool where
+  sqlConnectionPoolL = id
+
+runDB :: (MonadIO m, MonadReader env m, HasSqlConnectionPool env) => SqlPersistM a -> m a
+runDB a = do
+  pool <- view sqlConnectionPoolL
+  liftIO $ runSqlPersistMPool a pool
+
+share
+  [mkPersist sqlSettings {mpsGenerateLenses = True}, mkMigrate "migrateAll"]
+  [persistLowerCase|
+  Sprint
+    startDate Day
+    length Int
+    points Int
+    deriving Eq
+    deriving Show
+    deriving Generic
+
+  SprintEvent
+    sprintId SprintId
+    pointsChange Int
+    description Text
+    deriving Eq
+    deriving Show
+    deriving Generic
+|]
+
+instance ToJSON (Entity Sprint) where
+  toJSON (Entity id' value) =
+    object
+      [ "id" .= id',
+        "startDate" .= _sprintStartDate value,
+        "length" .= _sprintLength value,
+        "points" .= _sprintPoints value
+      ]
+
+instance FromJSON (Entity Sprint) where
+  parseJSON = withObject "Entity Sprint" $ \o -> do
+    id' <- o .: "id"
+    startDate <- o .: "startDate"
+    length' <- o .: "length"
+    points <- o .: "points"
+    return $ Entity id' $ Sprint startDate length' points
+
+instance ToJSON (Entity SprintEvent) where
+  toJSON (Entity id' value) =
+    object
+      [ "id" .= id',
+        "sprintId" .= _sprintEventSprintId value,
+        "pointsChange" .= _sprintEventPointsChange value,
+        "description" .= _sprintEventDescription value
+      ]
+
+instance FromJSON (Entity SprintEvent) where
+  parseJSON = withObject "Entity SprintEvent" $ \o -> do
+    id' <- o .: "id"
+    sprintId <- o .: "sprintId"
+    pointsChange <- o .: "pointsChange"
+    description <- o .: "description"
+    return $ Entity id' $ SprintEvent sprintId pointsChange description
+
+foldMapM deriveJSON [''Sprint, ''SprintEvent]
+
+{-# START_FILE src/Handlers.hs #-}
+module Handlers where
+
+import Database
+import Database.Persist
+import Qtility
+import Types
+
+getSprints :: AppM [Entity Sprint]
+getSprints = do
+  logDebug "Getting sprints"
+  runDB (selectList [] [])
+
+getSprint :: SprintId -> AppM Sprint
+getSprint sid = do
+  logDebug $ "Getting sprint " <> displayShow sid
+  runDB $ getJust sid
+
+addSprint :: Sprint -> AppM (Entity Sprint)
+addSprint sprint = do
+  logDebug $ "Adding sprint: " <> fromString (show sprint)
+  runDB $ insertEntity sprint
+
+updateSprint :: SprintId -> Sprint -> AppM Sprint
+updateSprint sid sprint = do
+  logDebug $ "Updating sprint " <> displayShow sid <> ": " <> fromString (show sprint)
+  runDB $ replace sid sprint
+  pure sprint
+
+clearSprints :: AppM ()
+clearSprints = do
+  logDebug "Clearing sprints"
+  runDB $ deleteWhere ([] :: [Filter Sprint])
+
+deleteSprint :: SprintId -> AppM ()
+deleteSprint sid = do
+  logDebug $ "Deleting sprint " <> displayShow sid
+  runDB $ delete sid
+
+getSprintEvents :: SprintId -> AppM [Entity SprintEvent]
+getSprintEvents sid = do
+  logDebug $ "Getting sprint events for " <> displayShow sid
+  runDB $ selectList [SprintEventSprintId ==. sid] []
+
+getSprintEvent :: SprintEventId -> AppM SprintEvent
+getSprintEvent eid = do
+  logDebug $ "Getting sprint event " <> displayShow eid
+  runDB $ getJust eid
+
+addSprintEvent :: SprintId -> SprintEvent -> AppM (Entity SprintEvent)
+addSprintEvent sid event = do
+  logDebug $ "Adding sprint event to " <> displayShow sid <> ": " <> fromString (show event)
+  runDB $ insertEntity event
+
+updateSprintEvent :: SprintEventId -> SprintEvent -> AppM SprintEvent
+updateSprintEvent eid event = do
+  logDebug $ "Updating sprint event " <> displayShow eid <> ": " <> fromString (show event)
+  runDB $ replace eid event
+  pure event
+
+clearSprintEvents :: SprintId -> AppM ()
+clearSprintEvents sid = do
+  logDebug $ "Clearing sprint events for " <> displayShow sid
+  runDB $ deleteWhere [SprintEventSprintId ==. sid]
+
+deleteSprintEvent :: SprintEventId -> AppM ()
+deleteSprintEvent eid = do
+  logDebug $ "Deleting sprint event " <> displayShow eid
+  runDB $ delete eid
+
+{-# START_FILE src/OrphanInstances.hs #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
+module OrphanInstances where
+
+import qualified Data.ByteString.Char8 as ByteString8
+import Data.UUID (UUID)
+import qualified Data.UUID as UUID
+import Database.Persist.Sql
+import Qtility
+
+instance PersistField UUID where
+  toPersistValue = UUID.toString >>> fromString >>> PersistLiteral_ DbSpecific
+  fromPersistValue (PersistLiteral_ DbSpecific v) = case UUID.fromString $ ByteString8.unpack v of
+    Just v' -> Right v'
+    Nothing -> Left "Invalid UUID"
+  fromPersistValue _ = Left "Not `PersistDbSpecific`"
+
+instance PersistFieldSql UUID where
+  sqlType _ = SqlOther "uuid"
+
+{-# START_FILE package.yml #-}
+name:    {{name}}
+version: "0.0.0"
+
+extra-source-files:
+- README.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}#readme>
+
+dependencies:
+- base >=4.9.1.0 && <5
+- rio
+- servant
+- servant-server
+- qtility
+- wai
+- warp
+- persistent
+- persistent-postgresql
+- esqueleto
+- resource-pool
+- monad-logger
+- uuid
+- bytestring
+
+default-extensions:
+- ApplicativeDo
+- BangPatterns
+- BinaryLiterals
+- ConstraintKinds
+- DataKinds
+- DefaultSignatures
+- DeriveDataTypeable
+- DeriveFoldable
+- DeriveFunctor
+- DeriveGeneric
+- DeriveTraversable
+- DeriveLift
+- DerivingStrategies
+- DoAndIfThenElse
+- DuplicateRecordFields
+- EmptyDataDecls
+- EmptyCase
+- ExistentialQuantification
+- FlexibleContexts
+- FlexibleInstances
+- FunctionalDependencies
+- GADTs
+- GeneralizedNewtypeDeriving
+- InstanceSigs
+- KindSignatures
+- LambdaCase
+- MultiParamTypeClasses
+- MultiWayIf
+- NamedFieldPuns
+- NoImplicitPrelude
+- OverloadedStrings
+- PartialTypeSignatures
+- PatternGuards
+- PolyKinds
+- RankNTypes
+- RecordWildCards
+- ScopedTypeVariables
+- StandaloneDeriving
+- TupleSections
+- TypeFamilies
+- TypeSynonymInstances
+- ViewPatterns
+- TypeApplications
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wpartial-fields
+- -Wredundant-constraints
+- -Wwarn=deprecations
+- -Werror=incomplete-patterns
+
+library:
+  source-dirs: src
+
+# Runnable executable for our application
+executables:
+  {{name}}:
+    main: Main.hs
+    source-dirs: app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - {{name}}
+    - optparse-simple
+
+# Test suite
+tests:
+  {{name}}-test:
+    main: Spec.hs
+    source-dirs: test
+    ghc-options: -Wall
+    dependencies:
+    - {{name}}
+    - hspec-wai
+    - wai-extra
+    - hspec >=2.0.0
+    - http-types
+
+{-# START_FILE stack.yml #-}
+resolver: lts-18.14
+
+packages:
+- .
+
+allow-different-user: true
+
+extra-deps:
+- github: quanterall/qtility
+  commit: f551c230d649746efdffabb0170fa8c53f7c5d98
+  subdirs:
+  - qtility
+  # nix-sha256: sha256-ijhiIRKY5/DU6M7JL9tgxrQcJnOSHGEpWIty6IbxrF4=
+
+nix:
+  enable: false
+  packages: 
+  - zlib
+  - postgresql
+
+{-# START_FILE test/Spec.hs #-}
+{-# OPTIONS_GHC -F -pgmF hspec-discover #-}
+
+{-# START_FILE test/UtilSpec.hs #-}
+module UtilSpec (spec) where
+
+import Import
+import Util
+import Test.Hspec
+import Test.Hspec.QuickCheck
+
+spec :: Spec
+spec = do
+  describe "plus" $ do
+    it "should be able to do basic addition" $ 1 + 1 `shouldBe` 2
+
+{-# START_FILE test/ServerSpec.hs #-}
+module ServerSpec where
+
+import Database
+import Database.Persist (Entity (..))
+import Database.Persist.Sql (BackendKey (..))
+import Library
+import Network.Wai.Test (SResponse (..))
+import Qtility
+import RIO.Time (fromGregorian)
+import Test.Hspec
+import Test.Hspec.Wai
+import TestUtilities
+
+spec :: Spec
+spec = do
+  (state, app) <- runIO createApplication
+  around_ (setupServer state app) $ do
+    with (pure app) $ do
+      describe "GET /sprints" $ do
+        it "responds with empty list when we don't have sprints" $ do
+          get "/sprints" `shouldRespondWith` "[]"
+
+      describe "POST /sprints" $ do
+        it "can add a sprint and read it, then delete it" $ do
+          let sprint =
+                Sprint
+                  { _sprintStartDate = fromGregorian 2018 1 1,
+                    _sprintLength = 1,
+                    _sprintPoints = 1
+                  }
+          postTo "/sprints" sprint `shouldRespondWith` equalDecoded 200 sprint
+          Just [Entity sprintKey sprintValue] <-
+            (simpleBody >>> eitherDecode >>> hush) <$> get "/sprints"
+          let sprintId = unSqlBackendKey $ unSprintKey sprintKey
+          get ("/sprints/" <> fromString (show sprintId))
+            `shouldRespondWith` equalDecoded 200 sprintValue
+          delete ("/sprints/" <> fromString (show sprintId)) `shouldRespondWith` 204
+      describe "PUT /sprints/:id" $ do
+        it "can update a sprint" $ do
+          let sprint =
+                Sprint
+                  { _sprintStartDate = fromGregorian 2018 1 1,
+                    _sprintLength = 1,
+                    _sprintPoints = 1
+                  }
+          postTo "/sprints" sprint `shouldRespondWith` equalDecoded 200 sprint
+          Just [Entity sprintKey sprintValue] <-
+            (simpleBody >>> eitherDecode >>> hush) <$> get "/sprints"
+          let sprintId = unSqlBackendKey $ unSprintKey sprintKey
+              updatedSprint = sprintValue {_sprintLength = 2, _sprintPoints = 2}
+          putTo ("/sprints/" <> fromString (show sprintId)) updatedSprint
+            `shouldRespondWith` equalDecoded 200 updatedSprint
+          get ("/sprints/" <> fromString (show sprintId))
+            `shouldRespondWith` equalDecoded 200 updatedSprint
+          delete ("/sprints/" <> fromString (show sprintId)) `shouldRespondWith` 204
+
+{-# START_FILE test/TestUtilities.hs #-}
+module TestUtilities where
+
+import Control.Concurrent (forkIO, killThread)
+import Database
+import Database.Persist (Filter, deleteWhere)
+import Network.HTTP.Types.Method
+import Network.Wai (Application)
+import Network.Wai.Handler.Warp (run)
+import Network.Wai.Test (SResponse)
+import Qtility
+import Test.Hspec.Wai
+import Types
+
+setupServer :: App -> Application -> IO () -> IO ()
+setupServer App {_appConnectionPool = pool} app action = do
+  runReaderT (runDB $ deleteWhere ([] :: [Filter Sprint])) pool
+  bracket (forkIO $ run 8888 app) killThread (const action)
+
+postTo :: (ToJSON a) => ByteString -> a -> WaiSession st SResponse
+postTo path value =
+  request methodPost path [("Content-Type", "application/json")] (encode value)
+
+putTo :: (ToJSON a) => ByteString -> a -> WaiSession st SResponse
+putTo path value =
+  request methodPut path [("Content-Type", "application/json")] (encode value)
+
+equalDecoded :: (FromJSON a, Eq a, Show a) => ResponseMatcher -> a -> ResponseMatcher
+equalDecoded matcher a = matcher {matchBody = MatchBody $ matchDecodedValue a}
+  where
+    matchDecodedValue a' _headers body = do
+      decodedBody <- hush $ eitherDecode body
+      if decodedBody == a'
+        then Nothing
+        else Just $ "Expected: " ++ show a' ++ "\nActual: " ++ show decodedBody
+
+
+{-# START_FILE default.nix #-}
+let
+  # Read in the Niv sources
+  sources = import ./nix/sources.nix {};
+  # If ./nix/sources.nix file is not found run:
+  #   niv init
+  #   niv add input-output-hk/haskell.nix -n haskellNix
+
+  # Fetch the haskell.nix commit we have pinned with Niv
+  haskellNix = import sources.haskellNix {};
+  # If haskellNix is not found run:
+  #   niv add input-output-hk/haskell.nix -n haskellNix
+
+  # Import nixpkgs and pass the haskell.nix provided nixpkgsArgs
+  pkgs = import
+    # haskell.nix provides access to the nixpkgs pins which are used by our CI,
+    # hence you will be more likely to get cache hits when using these.
+    # But you can also just use your own, e.g. '<nixpkgs>'.
+    haskellNix.sources.nixpkgs-unstable
+    # These arguments passed to nixpkgs, include some patches and also
+    # the haskell.nix functionality itself as an overlay.
+    haskellNix.nixpkgsArgs;
+in pkgs.haskell-nix.project {
+  # 'cleanGit' cleans a source directory based on the files known by git
+  src = pkgs.haskell-nix.haskellLib.cleanGit {
+    name = "{{name}}";
+    src = ./.;
+  };
+}
+
+{-# START_FILE shell.nix #-}
+let
+  pkgs = import <nixpkgs> { };
+in (import ./default.nix).shellFor {
+  withHoogle = true;
+
+  tools = {
+    cabal = "3.2.0.0";
+    hlint = "latest";
+    ormolu = "0.3.1.0";
+  };
+
+  exactDeps = true;
+}
+
+{-# START_FILE .ghci #-}
+:set -package pretty-simple
+:set -XOverloadedStrings
+:set -interactive-print=Text.Pretty.Simple.pPrint
+import qualified Prelude
+:def hoogle \x -> Prelude.pure Prelude.$ ":!hoogle " Prelude.<> x
+:set prompt "Q> "
+
+{-# START_FILE .vscode/extensions.json #-}
+{
+	// See https://go.microsoft.com/fwlink/?LinkId=827846 to learn about workspace recommendations.
+	// Extension identifier format: ${publisher}.${name}. Example: vscode.csharp
+
+	// List of extensions which should be recommended for users of this workspace.
+	"recommendations": [
+        "sjurmillidahl.ormolu-vscode",
+        "dramforever.vscode-ghc-simple",
+        "hoovercj.haskell-linter",
+        "gonzooo.at-notes",
+        "sleistner.vscode-fileutils",
+        "fayras.simple-new-file",
+        "jcanero.hoogle-vscode",
+        "mel-brown.haskell-yesod-quasiquotes"
+	],
+	// List of extensions recommended by VS Code that should not be recommended for users of this workspace.
+	"unwantedRecommendations": []
+}
+
+{-# START_FILE Setup.hs #-}
+import Distribution.Simple
+main = defaultMain
+
+{-# START_FILE docker-compose.yml #-}
+version: '3'
+
+services:
+  postgresql:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{name}}
+    ports:
+      - "5432:5432"
+    volumes:
+      - {{name}}-db:/var/lib/postgresql/data
+
+volumes:
+  {{name}}-db:
+
+{-# START_FILE hie.yml #-}
+cradle:
+  stack:
+    - path: "./app/Main.hs"
+      component: "{{name}}:exe:{{name}}"
+
+    - path: "./src"
+      component: "{{name}}:lib"
+
+    - path: "./app/Paths_{{name-as-varid}}.hs"
+      component: "{{name}}:exe:{{name}}"
+
+    - path: "./test"
+      component: "{{name}}:test:{{name}}-test"
+
+{-# START_FILE .gitignore #-}
+*.hi
+*.o
+.hsenv*
+cabal-dev/
+.stack-work/
+.cabal-sandbox
+cabal.sandbox.config
+.DS_Store
+*.swp
+*~
+\#*
+.devcontainer/build
+
+{-# START_FILE .devcontainer/docker-compose.yaml #-}
+version: '3'
+
+services:
+  {{name}}:
+    image: gonz/quanterall-application-development:lts-18.14
+    volumes:
+      - ..:/workspace:cached
+      - ./build/stack-work:/workspace/.stack-work:cached
+    command: /bin/sh -c "while sleep 1000; do :; done"
+
+  postgresql:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{name}}
+    ports:
+      - "5432:5432"
+    volumes:
+      - {{name}}-db:/var/lib/postgresql/data
+
+volumes:
+  {{name}}-db:
+
+networks:
+  default:
+    driver: bridge
+
+{-# START_FILE .devcontainer/devcontainer.json #-}
+{
+  "name": "{{name}}",
+  "service": "{{name}}",
+  "workspaceFolder": "/workspace",
+  "dockerComposeFile": "./docker-compose.yaml",
+  "extensions": [
+    "sjurmillidahl.ormolu-vscode",
+    "dramforever.vscode-ghc-simple",
+    "lunaryorn.hlint",
+    "gonzooo.at-notes",
+    "sleistner.vscode-fileutils",
+    "fayras.simple-new-file",
+    "jcanero.hoogle-vscode"
+  ],
+  "settings": {
+    "[haskell]": {
+      "editor.tabSize": 2,
+      "editor.formatOnSave": true,
+      "editor.defaultFormatter": "sjurmillidahl.ormolu-vscode",
+      "editor.renderIndentGuides": true
+    }
+  }
+}
+
+{-# START_FILE README.md #-}
+# {{name}}
+
+API template using [Servant](https://docs.servant.dev/en/stable/).
+
+Start editing code in the `src` directory!
