@@ -4,7 +4,6 @@
 import Options.Applicative.Simple
 import qualified Paths_{{name-as-varid}}
 import Qtility
-import RIO.Process
 import Run
 import Types
 
