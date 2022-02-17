@@ -74,6 +74,32 @@ createApplication options = do
       application $ App {_appConnectionPool = pool, _appLogFunc = mempty, _appOptions = options}
     )
 
+{-# START_FILE src/Types.hs #-}
+{-# LANGUAGE TemplateHaskell #-}
+
+module Types where
+
+import Database.Persist.Sql (ConnectionPool)
+import Qtility
+
+type AppM = RIO App
+
+data App = App
+  { _appConnectionPool :: !ConnectionPool,
+    _appLogFunc :: !LogFunc,
+    _appOptions :: !Options
+  }
+
+data Options = Options
+  { _optionsVerbose :: !Bool,
+    _optionsPort :: !Int
+  }
+
+instance HasLogFunc App where
+  logFuncL = lens _appLogFunc (\x y -> x {_appLogFunc = y})
+
+foldMapM makeLenses [''App, ''Options]
+
 {-# START_FILE src/API.hs #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
