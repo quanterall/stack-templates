@@ -317,7 +317,7 @@ instance PersistField UUID where
 instance PersistFieldSql UUID where
   sqlType _ = SqlOther "uuid"
 
-{-# START_FILE package.yml #-}
+{-# START_FILE package.yaml #-}
 name:    {{name}}
 version: "0.0.0"
 
