@@ -27,6 +27,13 @@ main = do
                 <> help "Port to listen on"
                 <> value 3000
             )
+          <*> option
+            auto
+            ( long "database"
+                <> short 'd'
+                <> help "Database to use"
+                <> value (DatabaseName "{{name}}")
+            )
       )
       empty
   runMain options
@@ -35,14 +42,13 @@ main = do
 module Run where
 
 import API
-import Control.Monad.Logger
-import Database (migrateAll)
-import Database.Persist.Postgresql (createPostgresqlPool, runSqlPool)
-import Database.Persist.Sql (runMigration)
+import Data.Pool
+import Database.PostgreSQL.Simple
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Qtility
 import Types
+import Utilities
 
 runMain :: Options -> IO ()
 runMain options = do
@@ -53,51 +59,221 @@ runServer options = do
   logOptions <- logOptionsHandle stdout (options ^. optionsVerbose)
   withLogFunc logOptions $ \logFunc -> do
     pool <-
-      runStdoutLoggingT $
-        createPostgresqlPool
-          "host=localhost port=5432 user=postgres password=postgres dbname={{name}}"
-          10
-    let initialState = App {_appConnectionPool = pool, _appLogFunc = logFunc, _appOptions = options}
-    runSqlPool (runMigration migrateAll) pool
+      createPool
+        (connectPostgreSQL "host=localhost port=5432 user=postgres password=postgres dbname={{name}}")
+        close
+        1
+        2
+        10
+    let initialState = App {_appPostgresqlPool = pool, _appLogFunc = logFunc, _appOptions = options}
+    runRIO pool $ runSqlFiles ["db/02-create-tables.sql"]
     run (options ^. optionsPort) $ application initialState
 
 createApplication :: Options -> IO (App, Application)
 createApplication options = do
+  let connectionString = "host=localhost port=5432 user=postgres password=postgres dbname="
   pool <-
-    runNoLoggingT $
-      createPostgresqlPool
-        "host=localhost port=5432 user=postgres password=postgres dbname={{name}}-test"
-        10
-  pure
-    ( App {_appConnectionPool = pool, _appLogFunc = mempty, _appOptions = options},
-      application $ App {_appConnectionPool = pool, _appLogFunc = mempty, _appOptions = options}
-    )
+    createPool
+      (connectPostgreSQL $ connectionString <> (options ^. optionsDatabase . unwrap))
+      close
+      1
+      2
+      10
+  let app = App {_appPostgresqlPool = pool, _appLogFunc = mempty, _appOptions = options}
+  pure (app, application app)
+
+{-# START_FILE src/Utilities.hs #-}
+module Utilities where
+
+import Database.PostgreSQL.Simple
+import Database.PostgreSQL.Simple.Utilities
+import Qtility
+import qualified RIO.Text as Text
+
+runSqlFiles ::
+  (MonadReader env m, MonadUnliftIO m, HasPostgresqlPool env) =>
+  [FilePath] ->
+  m ()
+runSqlFiles files = do
+  forM_ files $ \f -> do
+    sqlText <- Text.unpack <$> readFileUtf8 f
+    runDB $ flip execute_ (fromString sqlText)
 
 {-# START_FILE src/Types.hs #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Types where
 
-import Database.Persist.Sql (ConnectionPool)
+import Data.OpenApi
+import qualified Data.OpenApi as OpenApi
+import Data.Pool (Pool)
+import Database.PostgreSQL.Simple (Connection)
+import Database.PostgreSQL.Simple.FromField (FromField (..))
+import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
+import Database.PostgreSQL.Simple.Utilities (HasPostgresqlPool (..))
 import Qtility
+import Qtility.TH.OpenApi (deriveSchema)
+import RIO.Time (UTCTime)
 
 type AppM = RIO App
 
+data WithKey k a = WithKey
+  { _withKeyId :: !k,
+    _withKeyValue :: !a
+  }
+  deriving (Eq, Show, Generic)
+
+data Board = Board
+  { _boardName :: !Text,
+    _boardColor :: !Text,
+    _boardCreatedAt :: !UTCTime,
+    _boardUpdatedAt :: !UTCTime
+  }
+  deriving (Eq, Show, Generic)
+
+data List = List
+  { _listBoardId :: !(Maybe Int64),
+    _listName :: !Text,
+    _listCreatedAt :: !UTCTime,
+    _listUpdatedAt :: !UTCTime
+  }
+  deriving (Eq, Show, Generic)
+
+data Label = Label
+  { _labelName :: !Text,
+    _labelColor :: !Text,
+    _labelCreatedAt :: !UTCTime,
+    _labelUpdatedAt :: !UTCTime
+  }
+  deriving (Eq, Show, Generic)
+
+data Card = Card
+  { _cardListId :: !(Maybe Int64),
+    _cardName :: !Text,
+    _cardDescription :: !Text,
+    _cardCreatedAt :: !UTCTime,
+    _cardUpdatedAt :: !UTCTime
+  }
+  deriving (Eq, Show, Generic)
+
+instance FromRow Board
+
+instance FromField Board where
+  fromField f bs = do
+    name' <- fromField f bs
+    color <- fromField f bs
+    createdAt <- fromField f bs
+    updatedAt <- fromField f bs
+    pure $ Board name' color createdAt updatedAt
+
+instance FromRow List
+
+instance FromField List where
+  fromField f bs = do
+    boardId <- fromField f bs
+    name' <- fromField f bs
+    createdAt <- fromField f bs
+    updatedAt <- fromField f bs
+    pure $ List boardId name' createdAt updatedAt
+
+instance FromRow Label
+
+instance FromField Label where
+  fromField f bs = do
+    name' <- fromField f bs
+    color <- fromField f bs
+    createdAt <- fromField f bs
+    updatedAt <- fromField f bs
+    pure $ Label name' color createdAt updatedAt
+
+instance FromRow Card
+
+instance FromField Card where
+  fromField f bs = do
+    listId <- fromField f bs
+    name' <- fromField f bs
+    description' <- fromField f bs
+    createdAt <- fromField f bs
+    updatedAt <- fromField f bs
+    pure $ Card listId name' description' createdAt updatedAt
+
+instance (FromField k, FromRow a) => FromRow (WithKey k a) where
+  fromRow = do
+    k <- field
+    v <- fromRow
+    pure $ WithKey {_withKeyId = k, _withKeyValue = v}
+
+instance (ToJSON k, ToJSON a) => ToJSON (WithKey k a) where
+  toJSON (WithKey id' a) = object ["id" .= id', "value" .= a]
+
+instance (FromJSON k, FromJSON a) => FromJSON (WithKey k a) where
+  parseJSON = withObject "WithKey" $ \o ->
+    WithKey <$> o .: "id" <*> o .: "value"
+
+newtype DatabaseName = DatabaseName {unDatabaseName :: ByteString}
+  deriving (Eq, Show, Read)
+
+newtype OpenApiSchema = OpenApiSchema {unOpenApiSchema :: OpenApi}
+  deriving (Eq, Show, Generic, FromJSON, ToJSON)
+
+instance ToSchema OpenApiSchema where
+  declareNamedSchema _ =
+    mempty
+      & type_ ?~ OpenApiObject
+      & description ?~ "An OpenAPI schema, for clients to understand the interface"
+      & NamedSchema (Just "OpenApiSchema")
+      & pure
+
+runAppM :: App -> AppM a -> IO a
+runAppM = runRIO
+
 data App = App
-  { _appConnectionPool :: !ConnectionPool,
+  { _appPostgresqlPool :: !(Pool Connection),
     _appLogFunc :: !LogFunc,
     _appOptions :: !Options
   }
 
 data Options = Options
   { _optionsVerbose :: !Bool,
-    _optionsPort :: !Int
+    _optionsPort :: !Int,
+    _optionsDatabase :: !DatabaseName
   }
 
 instance HasLogFunc App where
   logFuncL = lens _appLogFunc (\x y -> x {_appLogFunc = y})
 
+data AddBoardParameters = AddBoardParameters
+  { _addBoardParametersName :: !Text,
+    _addBoardParametersColor :: !Text
+  }
+  deriving (Eq, Show, Generic)
+
+data AddCardParameters = AddCardParameters
+  { _addCardParametersName :: !Text,
+    _addCardParametersDescription :: !Text
+  }
+  deriving (Eq, Show, Generic, Typeable)
+
+instance (ToSchema k, ToSchema v) => ToSchema (WithKey k v) where
+  declareNamedSchema =
+    genericDeclareNamedSchema
+      defaultSchemaOptions {OpenApi.fieldLabelModifier = unlensName "WithKey"}
+
+unlensName :: String -> String -> String
+unlensName name' = drop 1 >>> drop (length name') >>> lowerCaseFirstCharacter
+
 foldMapM makeLenses [''App, ''Options]
+
+foldMapM
+  deriveLensAndJSON
+  [''Board, ''List, ''Label, ''Card, ''AddBoardParameters, ''AddCardParameters]
+
+foldMapM makeWrapped [''DatabaseName]
+
+foldMapM deriveSchema [''Board, ''List, ''Label, ''Card, ''AddBoardParameters, ''AddCardParameters]
+
+instance HasPostgresqlPool App where
+  postgresqlPoolL = appPostgresqlPool
 
 {-# START_FILE src/API.hs #-}
 {-# LANGUAGE DataKinds #-}
@@ -106,244 +282,424 @@ foldMapM makeLenses [''App, ''Options]
 
 module API where
 
-import Database
-import Database.Persist (Entity)
 import Handlers
+import Network.Wai (Middleware)
+import Network.Wai.Middleware.Cors
 import Qtility hiding (Handler)
 import Servant
+import Servant.OpenApi (toOpenApi)
 import Types
 
-type API = "sprints" :> SprintsAPI
+type API = BoardAPI :<|> SchemaAPI
 
-type SprintsAPI =
-  Get '[JSON] [Entity Sprint]
-    :<|> ReqBody '[JSON] Sprint :> Post '[JSON] (Entity Sprint)
-    :<|> DeleteNoContent
-    :<|> SprintAPI
+type SchemaAPI = "schema" :> Get '[JSON] OpenApiSchema
 
-type SprintAPI =
-  Capture "sprintId" SprintId :> Get '[JSON] Sprint
-    :<|> Capture "sprintId" SprintId :> ReqBody '[JSON] Sprint :> Put '[JSON] Sprint
-    :<|> Capture "sprintId" SprintId :> DeleteNoContent
-    :<|> SprintEventsAPI
+type EntityAPI path idName entityId entityValue addingParameters subAPI =
+  path
+    :> ( Get '[JSON] [WithKey Int64 entityValue]
+           :<|> ReqBody '[JSON] addingParameters :> Post '[JSON] (WithKey Int64 entityValue)
+           :<|> EntityIdAPI idName entityId entityValue subAPI
+       )
 
-type SprintEventsAPI =
-  Capture "sprintId" SprintId :> "events" :> Get '[JSON] [Entity SprintEvent]
-    :<|> Capture "sprintId" SprintId
-      :> "events"
-      :> ReqBody '[JSON] SprintEvent
-      :> Post '[JSON] (Entity SprintEvent)
-    :<|> Capture "sprintId" SprintId
-      :> "events"
-      :> DeleteNoContent
-    :<|> Capture "sprintId" SprintId
-      :> "events"
-      :> Capture "eventId" SprintEventId
-      :> DeleteNoContent
-    :<|> Capture "sprintId" SprintId
-      :> "events"
-      :> Capture "eventId" SprintEventId
-      :> ReqBody '[JSON] SprintEvent
-      :> Put '[JSON] SprintEvent
+type EntityIdAPI idName entityId entityValue subAPI =
+  Capture idName entityId
+    :> ( Get '[JSON] entityValue
+           :<|> ReqBody '[JSON] entityValue :> Put '[JSON] entityValue
+           :<|> DeleteNoContent
+           :<|> subAPI
+       )
+
+type BoardAPI = EntityAPI "boards" "boardId" Int64 Board AddBoardParameters ListAPI
+
+type BoardIdAPI = EntityIdAPI "boardId" Int64 Board ListAPI
+
+type ListAPI = EntityAPI "lists" "listId" Int64 List Text CardAPI
+
+type ListIdAPI = EntityIdAPI "listId" Int64 List CardAPI
+
+type CardAPI = EntityAPI "cards" "cardId" Int64 Card AddCardParameters EmptyAPI
+
+type CardIdAPI = EntityIdAPI "cardId" Int64 Card EmptyAPI
 
 server :: ServerT API AppM
-server =
-  getSprints
-    :<|> addSprint
-    :<|> (clearSprints >> pure NoContent)
-    :<|> getSprint
-    :<|> updateSprint
-    :<|> (\id' -> deleteSprint id' >> pure NoContent)
-    :<|> getSprintEvents
-    :<|> addSprintEvent
-    :<|> (\id' -> clearSprintEvents id' >> pure NoContent)
-    :<|> (\_id' eid -> deleteSprintEvent eid >> pure NoContent)
-    :<|> const updateSprintEvent
+server = serveBoardAPI :<|> getApiSchema
+
+serveBoardAPI :: ServerT BoardAPI AppM
+serveBoardAPI = getBoards :<|> addBoard :<|> serveBoardIdAPI
+
+serveBoardIdAPI :: ServerT BoardIdAPI AppM
+serveBoardIdAPI boardId =
+  getBoard boardId :<|> updateBoard boardId :<|> (deleteBoard boardId >> pure NoContent)
+    :<|> serveListAPI boardId
+
+serveListAPI :: Int64 -> ServerT ListAPI AppM
+serveListAPI boardId =
+  getLists boardId :<|> addList boardId :<|> serveListIdAPI boardId
+
+serveListIdAPI :: Int64 -> ServerT ListIdAPI AppM
+serveListIdAPI boardId listId =
+  getList boardId listId
+    :<|> updateList boardId listId
+    :<|> (deleteList boardId listId >> pure NoContent)
+    :<|> serveCardAPI boardId listId
+
+serveCardAPI :: Int64 -> Int64 -> ServerT CardAPI AppM
+serveCardAPI boardId listId =
+  getCards boardId listId :<|> addCard boardId listId :<|> serveCardIdAPI boardId listId
+
+serveCardIdAPI :: Int64 -> Int64 -> ServerT CardIdAPI AppM
+serveCardIdAPI boardId listId cardId =
+  getCard boardId listId cardId
+    :<|> updateCard boardId listId cardId
+    :<|> (deleteCard boardId listId cardId >> pure NoContent)
+    :<|> emptyServer
 
 appMServer :: App -> Server API
 appMServer initialState = hoistServer @API Proxy (runRIO initialState) server
 
 application :: App -> Application
 application initialState = do
-  serve @API Proxy $ appMServer initialState
+  corsMiddleware $ serve @API Proxy $ appMServer initialState
 
-{-# START_FILE src/Database.hs #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE UndecidableInstances #-}
+corsMiddleware :: Middleware
+corsMiddleware =
+  cors $
+    const $
+      Just $
+        simpleCorsResourcePolicy
+          { corsMethods = ["PUT", "GET", "HEAD", "OPTIONS", "POST"],
+            corsOrigins = Nothing, --Just (["http://172.17.44.47:5000"], False),
+            corsExposedHeaders = Nothing,
+            corsRequestHeaders = ["Content-Type", "Authorization"]
+          }
 
-module Database where
-
-import Database.Persist.Sql
-import Database.Persist.TH
-import OrphanInstances ()
-import Qtility
-import RIO.Time (Day)
-import Types
-
-class HasSqlConnectionPool env where
-  sqlConnectionPoolL :: Lens' env ConnectionPool
-
-instance HasSqlConnectionPool App where
-  sqlConnectionPoolL = appConnectionPool
-
-instance HasSqlConnectionPool ConnectionPool where
-  sqlConnectionPoolL = id
-
-runDB :: (MonadIO m, MonadReader env m, HasSqlConnectionPool env) => SqlPersistM a -> m a
-runDB a = do
-  pool <- view sqlConnectionPoolL
-  liftIO $ runSqlPersistMPool a pool
-
-share
-  [mkPersist sqlSettings {mpsGenerateLenses = True}, mkMigrate "migrateAll"]
-  [persistLowerCase|
-  Sprint
-    startDate Day
-    length Int
-    points Int
-    deriving Eq
-    deriving Show
-    deriving Generic
-
-  SprintEvent
-    sprintId SprintId
-    pointsChange Int
-    description Text
-    deriving Eq
-    deriving Show
-    deriving Generic
-|]
-
-instance ToJSON (Entity Sprint) where
-  toJSON (Entity id' value) =
-    object
-      [ "id" .= id',
-        "startDate" .= _sprintStartDate value,
-        "length" .= _sprintLength value,
-        "points" .= _sprintPoints value
-      ]
-
-instance FromJSON (Entity Sprint) where
-  parseJSON = withObject "Entity Sprint" $ \o -> do
-    id' <- o .: "id"
-    startDate <- o .: "startDate"
-    length' <- o .: "length"
-    points <- o .: "points"
-    return $ Entity id' $ Sprint startDate length' points
-
-instance ToJSON (Entity SprintEvent) where
-  toJSON (Entity id' value) =
-    object
-      [ "id" .= id',
-        "sprintId" .= _sprintEventSprintId value,
-        "pointsChange" .= _sprintEventPointsChange value,
-        "description" .= _sprintEventDescription value
-      ]
-
-instance FromJSON (Entity SprintEvent) where
-  parseJSON = withObject "Entity SprintEvent" $ \o -> do
-    id' <- o .: "id"
-    sprintId <- o .: "sprintId"
-    pointsChange <- o .: "pointsChange"
-    description <- o .: "description"
-    return $ Entity id' $ SprintEvent sprintId pointsChange description
-
-foldMapM deriveJSON [''Sprint, ''SprintEvent]
+getApiSchema :: AppM OpenApiSchema
+getApiSchema = do
+  logDebug "Getting schema"
+  Proxy @API & toOpenApi & OpenApiSchema & pure
 
 {-# START_FILE src/Handlers.hs #-}
 module Handlers where
 
-import Database
-import Database.Persist
+import Database.PostgreSQL.Simple.Utilities
+import qualified Database.Queries as Queries
 import Qtility
+import RIO.Time (getCurrentTime)
 import Types
 
-getSprints :: AppM [Entity Sprint]
-getSprints = do
-  logDebug "Getting sprints"
-  runDB (selectList [] [])
+getBoards :: AppM [WithKey Int64 Board]
+getBoards = do
+  logDebug "Getting boards"
+  runDB Queries.getBoards
 
-getSprint :: SprintId -> AppM Sprint
-getSprint sid = do
-  logDebug $ "Getting sprint " <> displayShow sid
-  runDB $ getJust sid
+getBoard :: Int64 -> AppM Board
+getBoard boardId = do
+  logDebug $ "Getting board " <> displayShow boardId
+  runDB $ Queries.getBoard boardId
 
-addSprint :: Sprint -> AppM (Entity Sprint)
-addSprint sprint = do
-  logDebug $ "Adding sprint: " <> fromString (show sprint)
-  runDB $ insertEntity sprint
+addBoard :: AddBoardParameters -> AppM (WithKey Int64 Board)
+addBoard parameters = do
+  now <- getCurrentTime
+  logDebug $ "Adding board: " <> fromString (show parameters)
+  runDB $ Queries.addBoard now parameters
 
-updateSprint :: SprintId -> Sprint -> AppM Sprint
-updateSprint sid sprint = do
-  logDebug $ "Updating sprint " <> displayShow sid <> ": " <> fromString (show sprint)
-  runDB $ replace sid sprint
-  pure sprint
+updateBoard :: Int64 -> Board -> AppM Board
+updateBoard boardId board = do
+  now <- getCurrentTime
+  logDebug $ "Updating board " <> displayShow boardId <> ": " <> fromString (show board)
+  runDB $ Queries.updateBoard now boardId board
+  pure board
 
-clearSprints :: AppM ()
-clearSprints = do
-  logDebug "Clearing sprints"
-  runDB $ deleteWhere ([] :: [Filter Sprint])
+deleteBoard :: Int64 -> AppM ()
+deleteBoard boardId = do
+  logDebug $ "Deleting board " <> displayShow boardId
+  runDB $ Queries.deleteBoard boardId
 
-deleteSprint :: SprintId -> AppM ()
-deleteSprint sid = do
-  logDebug $ "Deleting sprint " <> displayShow sid
-  runDB $ delete sid
+getLists :: Int64 -> AppM [WithKey Int64 List]
+getLists boardId = do
+  logDebug $ "Getting lists for board " <> displayShow boardId
+  runDB $ Queries.getLists boardId
 
-getSprintEvents :: SprintId -> AppM [Entity SprintEvent]
-getSprintEvents sid = do
-  logDebug $ "Getting sprint events for " <> displayShow sid
-  runDB $ selectList [SprintEventSprintId ==. sid] []
+addList :: Int64 -> Text -> AppM (WithKey Int64 List)
+addList boardId name = do
+  now <- getCurrentTime
+  let list =
+        List
+          { _listBoardId = Just boardId,
+            _listName = name,
+            _listCreatedAt = now,
+            _listUpdatedAt = now
+          }
+  logDebug $ "Adding list: " <> fromString (show list)
+  runDB $ Queries.addList now list
 
-getSprintEvent :: SprintEventId -> AppM SprintEvent
-getSprintEvent eid = do
-  logDebug $ "Getting sprint event " <> displayShow eid
-  runDB $ getJust eid
+getList :: Int64 -> Int64 -> AppM List
+getList _boardId listId = do
+  logDebug $ "Getting list " <> displayShow listId
+  runDB $ Queries.getList listId
 
-addSprintEvent :: SprintId -> SprintEvent -> AppM (Entity SprintEvent)
-addSprintEvent sid event = do
-  logDebug $ "Adding sprint event to " <> displayShow sid <> ": " <> fromString (show event)
-  runDB $ insertEntity event
+deleteList :: Int64 -> Int64 -> AppM ()
+deleteList _boardId listId = do
+  logDebug $ "Deleting list " <> displayShow listId
+  runDB $ Queries.deleteList listId
 
-updateSprintEvent :: SprintEventId -> SprintEvent -> AppM SprintEvent
-updateSprintEvent eid event = do
-  logDebug $ "Updating sprint event " <> displayShow eid <> ": " <> fromString (show event)
-  runDB $ replace eid event
-  pure event
+updateList :: Int64 -> Int64 -> List -> AppM List
+updateList _boardId listId list = do
+  now <- getCurrentTime
+  logDebug $ "Updating list " <> displayShow listId
+  runDB $ Queries.updateList now listId list
 
-clearSprintEvents :: SprintId -> AppM ()
-clearSprintEvents sid = do
-  logDebug $ "Clearing sprint events for " <> displayShow sid
-  runDB $ deleteWhere [SprintEventSprintId ==. sid]
+getCards :: Int64 -> Int64 -> AppM [WithKey Int64 Card]
+getCards _boardId listId = do
+  logDebug $ "Getting cards for list " <> displayShow listId
+  runDB $ Queries.getCards listId
 
-deleteSprintEvent :: SprintEventId -> AppM ()
-deleteSprintEvent eid = do
-  logDebug $ "Deleting sprint event " <> displayShow eid
-  runDB $ delete eid
+addCard :: Int64 -> Int64 -> AddCardParameters -> AppM (WithKey Int64 Card)
+addCard _boardId listId parameters = do
+  now <- getCurrentTime
+  let card =
+        Card
+          { _cardListId = Just listId,
+            _cardName = parameters ^. addCardParametersName,
+            _cardDescription = parameters ^. addCardParametersDescription,
+            _cardCreatedAt = now,
+            _cardUpdatedAt = now
+          }
+  logDebug $ "Adding card: " <> fromString (show card)
+  runDB $ Queries.addCard now card
 
-{-# START_FILE src/OrphanInstances.hs #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
+getCard :: Int64 -> Int64 -> Int64 -> AppM Card
+getCard _boardId _listId cardId = do
+  logDebug $ "Getting card " <> displayShow cardId
+  runDB $ Queries.getCard cardId
 
-module OrphanInstances where
+updateCard :: Int64 -> Int64 -> Int64 -> Card -> AppM Card
+updateCard _boardId _listId cardId card = do
+  now <- getCurrentTime
+  logDebug $ "Updating card " <> displayShow cardId
+  runDB $ Queries.updateCard now cardId card
 
-import qualified Data.ByteString.Char8 as ByteString8
-import Data.UUID (UUID)
-import qualified Data.UUID as UUID
-import Database.Persist.Sql
-import Qtility
+deleteCard :: Int64 -> Int64 -> Int64 -> AppM ()
+deleteCard _boardId _listId cardId = do
+  logDebug $ "Deleting card " <> displayShow cardId
+  runDB $ Queries.deleteCard cardId
 
-instance PersistField UUID where
-  toPersistValue = UUID.toString >>> fromString >>> PersistLiteral_ DbSpecific
-  fromPersistValue (PersistLiteral_ DbSpecific v) = case UUID.fromString $ ByteString8.unpack v of
-    Just v' -> Right v'
-    Nothing -> Left "Invalid UUID"
-  fromPersistValue _ = Left "Not `PersistDbSpecific`"
+{-# START_FILE src/Database/Queries.hs #-}
+{-# LANGUAGE QuasiQuotes #-}
 
-instance PersistFieldSql UUID where
-  sqlType _ = SqlOther "uuid"
+module Database.Queries where
+
+import Database.PostgreSQL.Simple
+import Database.PostgreSQL.Simple.SqlQQ
+import RIO
+import RIO.List.Partial (head)
+import RIO.Time (UTCTime)
+import Types
+
+getBoards :: Connection -> IO [WithKey Int64 Board]
+getBoards connection =
+  query
+    connection
+    [sql|
+      SELECT
+        id, name, color, created_at, updated_at
+      FROM board
+    |]
+    ()
+
+getBoard :: Int64 -> Connection -> IO Board
+getBoard boardId connection =
+  head
+    <$> query
+      connection
+      [sql|
+        SELECT
+          name, color, created_at, updated_at
+        FROM board
+        WHERE id = ?
+      |]
+      (Only boardId)
+
+addBoard :: UTCTime -> AddBoardParameters -> Connection -> IO (WithKey Int64 Board)
+addBoard now parameters connection = do
+  [boardWithKey] <-
+    query
+      connection
+      [sql|
+        INSERT INTO board (name, color, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        RETURNING id, name, color, created_at, updated_at
+       |]
+      (parameters ^. addBoardParametersName, parameters ^. addBoardParametersColor, now, now)
+
+  pure boardWithKey
+
+updateBoard :: UTCTime -> Int64 -> Board -> Connection -> IO Board
+updateBoard now boardId board connection = do
+  [updatedBoard] <-
+    query
+      connection
+      [sql|
+        UPDATE board
+        SET
+          name = ?,
+          color = ?,
+          updated_at = ?
+        WHERE id = ?
+        RETURNING name, color, created_at, updated_at
+      |]
+      (board ^. boardName, board ^. boardColor, now, boardId)
+  pure updatedBoard
+
+deleteBoard :: Int64 -> Connection -> IO ()
+deleteBoard boardId connection =
+  void $
+    execute
+      connection
+      [sql|
+        DELETE FROM board
+        WHERE id = ?
+      |]
+      (Only boardId)
+
+getLists :: Int64 -> Connection -> IO [WithKey Int64 List]
+getLists boardId connection =
+  query
+    connection
+    [sql|
+      SELECT
+        id, board_id, name, created_at, updated_at
+      FROM list
+      WHERE board_id = ?
+    |]
+    (Only boardId)
+
+getList :: Int64 -> Connection -> IO List
+getList listId connection =
+  head
+    <$> query
+      connection
+      [sql|
+        SELECT
+          board_id, name, created_at, updated_at
+        FROM list
+        WHERE id = ?
+      |]
+      (Only listId)
+
+deleteList :: Int64 -> Connection -> IO ()
+deleteList listId connection =
+  void $
+    execute
+      connection
+      [sql|
+        DELETE FROM list
+        WHERE id = ?
+      |]
+      (Only listId)
+
+addList :: UTCTime -> List -> Connection -> IO (WithKey Int64 List)
+addList now list connection = do
+  [listWithKey] <-
+    query
+      connection
+      [sql|
+        INSERT INTO list (board_id, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        RETURNING id, board_id, name, created_at, updated_at
+       |]
+      (list ^. listBoardId, list ^. listName, now, now)
+
+  pure listWithKey
+
+updateList :: UTCTime -> Int64 -> List -> Connection -> IO List
+updateList now listId list connection = do
+  [updatedBoard] <-
+    query
+      connection
+      [sql|
+        UPDATE list
+        SET
+          name = ?,
+          updated_at = ?
+        WHERE id = ?
+        RETURNING board_id, name, created_at, updated_at
+      |]
+      (list ^. listName, now, listId)
+  pure updatedBoard
+
+getCards :: Int64 -> Connection -> IO [WithKey Int64 Card]
+getCards listId connection =
+  query
+    connection
+    [sql|
+      SELECT
+        id, list_id, name, description, created_at, updated_at
+      FROM card
+      WHERE list_id = ?
+    |]
+    (Only listId)
+
+getCard :: Int64 -> Connection -> IO Card
+getCard cardId connection =
+  head
+    <$> query
+      connection
+      [sql|
+        SELECT
+          list_id, name, description, created_at, updated_at
+        FROM card
+        WHERE id = ?
+      |]
+      (Only cardId)
+
+deleteCard :: Int64 -> Connection -> IO ()
+deleteCard cardId connection =
+  void $
+    execute
+      connection
+      [sql|
+        DELETE FROM card
+        WHERE id = ?
+      |]
+      (Only cardId)
+
+addCard :: UTCTime -> Card -> Connection -> IO (WithKey Int64 Card)
+addCard now card connection = do
+  [cardWithKey] <-
+    query
+      connection
+      [sql|
+        INSERT INTO card (list_id, name, description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        RETURNING id, list_id, name, description, created_at, updated_at
+       |]
+      (card ^. cardListId, card ^. cardName, card ^. cardDescription, now, now)
+
+  pure cardWithKey
+
+updateCard :: UTCTime -> Int64 -> Card -> Connection -> IO Card
+updateCard now cardId card connection = do
+  [updatedCard] <-
+    query
+      connection
+      [sql|
+        UPDATE card
+        SET
+          name = ?,
+          description = ?,
+          updated_at = ?
+        WHERE id = ?
+        RETURNING list_id, name, description, created_at, updated_at
+      |]
+      (card ^. cardName, card ^. cardDescription, now, cardId)
+  pure updatedCard
+
 
 {-# START_FILE package.yaml #-}
 name:    {{name}}
+license: MIT
+license-file: LICENSE
 version: "0.0.0"
 
 extra-source-files:
@@ -363,16 +719,18 @@ dependencies:
 - rio
 - servant
 - servant-server
+- servant-openapi3
+- openapi3
 - qtility
 - wai
+- wai-cors
 - warp
-- persistent
-- persistent-postgresql
-- esqueleto
 - resource-pool
-- monad-logger
 - uuid
 - bytestring
+- aeson-pretty
+- lens
+- postgresql-simple
 
 default-extensions:
 - ApplicativeDo
@@ -469,10 +827,10 @@ allow-different-user: true
 
 extra-deps:
 - github: quanterall/qtility
-  commit: f551c230d649746efdffabb0170fa8c53f7c5d98
+  commit: 2b3ffaec6356cbd63bda8066d1a0b1951b3bc190
   subdirs:
   - qtility
-  # nix-sha256: sha256-ijhiIRKY5/DU6M7JL9tgxrQcJnOSHGEpWIty6IbxrF4=
+  # nix-sha256: sha256-miT8ika1YNKF+hz8mas2L616SMCsPYSOxpyniHxqjkQ=
 
 nix:
   enable: false
@@ -483,27 +841,13 @@ nix:
 {-# START_FILE test/Spec.hs #-}
 {-# OPTIONS_GHC -F -pgmF hspec-discover #-}
 
-{-# START_FILE test/UtilSpec.hs #-}
-module UtilSpec (spec) where
-
-import Test.Hspec
-import Test.Hspec.QuickCheck
-import Qtility
-
-spec :: Spec
-spec = do
-  describe "plus" $ do
-    it "should be able to do basic addition" $ 1 + 1 `shouldBe` 2
-
 {-# START_FILE test/ServerSpec.hs #-}
+{-# LANGUAGE TypeApplications #-}
+
 module ServerSpec where
 
-import Database
-import Database.Persist (Entity (..))
-import Database.Persist.Sql (BackendKey (..))
 import Network.Wai.Test (SResponse (..))
 import Qtility
-import RIO.Time (fromGregorian)
 import Run
 import Test.Hspec
 import Test.Hspec.Wai
@@ -512,69 +856,323 @@ import Types
 
 spec :: Spec
 spec = do
-  (state, app) <- runIO $ createApplication Options {_optionsPort = 8888, _optionsVerbose = False}
+  (state, app) <-
+    runIO $
+      createApplication
+        Options
+          { _optionsPort = 8888,
+            _optionsVerbose = False,
+            _optionsDatabase = DatabaseName "{{name}}-web-test"
+          }
   around_ (setupServer state app) $ do
     with (pure app) $ do
-      describe "GET /sprints" $ do
-        it "responds with empty list when we don't have sprints" $ do
-          get "/sprints" `shouldRespondWith` "[]"
+      describe "GET /boards" $ do
+        it "responds with empty list when we don't have boards" $ do
+          get "/boards" `shouldRespondWith` "[]"
 
-      describe "POST /sprints" $ do
-        it "can add a sprint and read it, then delete it" $ do
-          let sprint =
-                Sprint
-                  { _sprintStartDate = fromGregorian 2018 1 1,
-                    _sprintLength = 1,
-                    _sprintPoints = 1
+      describe "POST /boards" $ do
+        it "can add a board and read it, then delete it" $ do
+          let parameters =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
                   }
-          postTo "/sprints" sprint `shouldRespondWith` equalDecoded 200 sprint
-          Just [Entity sprintKey sprintValue] <-
-            (simpleBody >>> eitherDecode >>> hush) <$> get "/sprints"
-          let sprintId = unSqlBackendKey $ unSprintKey sprintKey
-          get ("/sprints/" <> fromString (show sprintId))
-            `shouldRespondWith` equalDecoded 200 sprintValue
-          delete ("/sprints/" <> fromString (show sprintId)) `shouldRespondWith` 204
-      describe "PUT /sprints/:id" $ do
-        it "can update a sprint" $ do
-          let sprint =
-                Sprint
-                  { _sprintStartDate = fromGregorian 2018 1 1,
-                    _sprintLength = 1,
-                    _sprintPoints = 1
+          postTo "/boards" parameters `shouldRespondWith` 200
+          Just [WithKey boardId boardValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 Board] >>> hush) <$> get "/boards"
+          get ("/boards/" <> fromString (show boardId))
+            `shouldRespondWith` equalDecoded 200 boardValue
+          delete ("/boards/" <> fromString (show boardId)) `shouldRespondWith` 204
+
+      describe "PUT /boards/:id" $ do
+        it "can update a board" $ do
+          let board =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
                   }
-          postTo "/sprints" sprint `shouldRespondWith` equalDecoded 200 sprint
-          Just [Entity sprintKey sprintValue] <-
-            (simpleBody >>> eitherDecode >>> hush) <$> get "/sprints"
-          let sprintId = unSqlBackendKey $ unSprintKey sprintKey
-              updatedSprint = sprintValue {_sprintLength = 2, _sprintPoints = 2}
-          putTo ("/sprints/" <> fromString (show sprintId)) updatedSprint
-            `shouldRespondWith` equalDecoded 200 updatedSprint
-          get ("/sprints/" <> fromString (show sprintId))
-            `shouldRespondWith` equalDecoded 200 updatedSprint
-          delete ("/sprints/" <> fromString (show sprintId)) `shouldRespondWith` 204
+          WithKey (_boardId :: Int64) addedBoard <- decodedResponse <$> postTo "/boards" board
+          liftIO $ addedBoard ^. boardName `shouldBe` board ^. addBoardParametersName
+          liftIO $ addedBoard ^. boardColor `shouldBe` board ^. addBoardParametersColor
+          Just [WithKey (boardId :: Int64) boardValue] <-
+            (simpleBody >>> eitherDecode >>> hush) <$> get "/boards"
+          let updatedBoard = boardValue & boardName .~ "Test board 2" & boardColor .~ "blue"
+          putTo ("/boards/" <> fromString (show boardId)) updatedBoard
+            `shouldRespondWith` equalDecoded 200 updatedBoard
+          receivedUpdatedBoard <- decodedResponse <$> get ("/boards/" <> fromString (show boardId))
+          liftIO $ receivedUpdatedBoard ^. boardName `shouldBe` updatedBoard ^. boardName
+          liftIO $ receivedUpdatedBoard ^. boardColor `shouldBe` updatedBoard ^. boardColor
+          liftIO $ receivedUpdatedBoard ^. boardCreatedAt `shouldBe` updatedBoard ^. boardCreatedAt
+          delete ("/boards/" <> fromString (show boardId)) `shouldRespondWith` 204
+
+      describe "GET /boards/:id/lists" $ do
+        it "responds with empty list when we don't have lists" $ do
+          let board =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
+                  }
+          WithKey (_boardId :: Int64) addedBoard <- decodedResponse <$> postTo "/boards" board
+          liftIO $ addedBoard ^. boardName `shouldBe` board ^. addBoardParametersName
+          liftIO $ addedBoard ^. boardColor `shouldBe` board ^. addBoardParametersColor
+          Just [WithKey boardId _boardValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 Board] >>> hush) <$> get "/boards"
+          get ("/boards/" <> fromString (show boardId) <> "/lists")
+            `shouldRespondWith` "[]"
+          delete ("/boards/" <> fromString (show boardId)) `shouldRespondWith` 204
+
+      describe "POST /boards/:id/lists" $ do
+        it "can add a list and read it, then delete it" $ do
+          let board =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
+                  }
+          WithKey (boardId :: Int64) addedBoard <- decodedResponse <$> postTo "/boards" board
+          liftIO $ addedBoard ^. boardName `shouldBe` board ^. addBoardParametersName
+          liftIO $ addedBoard ^. boardColor `shouldBe` board ^. addBoardParametersColor
+          let list :: Text = "Test list 1"
+          postTo ("/boards/" <> fromString (show boardId) <> "/lists") list
+            `shouldRespondWith` 200
+          Just [WithKey listId listValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 List] >>> hush) <$> get ("/boards/" <> fromString (show boardId) <> "/lists")
+
+          get ("/boards/" <> fromString (show boardId) <> "/lists/" <> fromString (show listId))
+            `shouldRespondWith` equalDecoded 200 listValue
+
+          delete ("/boards/" <> fromString (show boardId) <> "/lists/" <> fromString (show listId))
+            `shouldRespondWith` 204
+
+          delete ("/boards/" <> fromString (show boardId)) `shouldRespondWith` 204
+
+      describe "PUT /boards/:id/lists/:id" $ do
+        it "can update a list" $ do
+          let board =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
+                  }
+          WithKey (boardId :: Int64) addedBoard <- decodedResponse <$> postTo "/boards" board
+          liftIO $ addedBoard ^. boardName `shouldBe` board ^. addBoardParametersName
+          liftIO $ addedBoard ^. boardColor `shouldBe` board ^. addBoardParametersColor
+          let list :: Text = "Test list 1"
+          postTo ("/boards/" <> fromString (show boardId) <> "/lists") list
+            `shouldRespondWith` 200
+          Just [WithKey listId listValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 List] >>> hush)
+              <$> get ("/boards/" <> fromString (show boardId) <> "/lists")
+          let updatedList = listValue & listName .~ "Test list 2"
+          receivedUpdatedList <-
+            decodedResponse
+              <$> putTo
+                ( "/boards/"
+                    <> fromString (show boardId)
+                    <> "/lists/"
+                    <> fromString (show listId)
+                )
+                updatedList
+          liftIO $ receivedUpdatedList ^. listName `shouldBe` updatedList ^. listName
+          liftIO $ receivedUpdatedList ^. listCreatedAt `shouldBe` updatedList ^. listCreatedAt
+          liftIO $ receivedUpdatedList ^. listBoardId `shouldBe` updatedList ^. listBoardId
+          liftIO $ receivedUpdatedList ^. listUpdatedAt `shouldNotBe` updatedList ^. listUpdatedAt
+          get ("/boards/" <> fromString (show boardId) <> "/lists/" <> fromString (show listId))
+            `shouldRespondWith` equalDecoded 200 receivedUpdatedList
+          delete ("/boards/" <> fromString (show boardId) <> "/lists/" <> fromString (show listId))
+            `shouldRespondWith` 204
+
+          delete ("/boards/" <> fromString (show boardId)) `shouldRespondWith` 204
+
+      describe "GET /boards/:id/lists/:id/cards" $ do
+        it "responds with empty list when we don't have cards" $ do
+          let board =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
+                  }
+          WithKey (boardId :: Int64) addedBoard <- decodedResponse <$> postTo "/boards" board
+          liftIO $ addedBoard ^. boardName `shouldBe` board ^. addBoardParametersName
+          liftIO $ addedBoard ^. boardColor `shouldBe` board ^. addBoardParametersColor
+          let list :: Text = "Test list 1"
+          postTo ("/boards/" <> fromString (show boardId) <> "/lists") list
+            `shouldRespondWith` 200
+          Just [WithKey listId _listValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 List] >>> hush)
+              <$> get ("/boards/" <> fromString (show boardId) <> "/lists")
+          get
+            ( "/boards/"
+                <> fromString (show boardId)
+                <> "/lists/"
+                <> fromString (show listId)
+                <> "/cards"
+            )
+            `shouldRespondWith` "[]"
+          delete ("/boards/" <> fromString (show boardId) <> "/lists/" <> fromString (show listId))
+            `shouldRespondWith` 204
+
+      describe "POST /boards/:id/lists/:id/cards" $ do
+        it "can add a card and read it, then delete it" $ do
+          let board =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
+                  }
+          WithKey (boardId :: Int64) addedBoard <- decodedResponse <$> postTo "/boards" board
+          liftIO $ addedBoard ^. boardName `shouldBe` board ^. addBoardParametersName
+          liftIO $ addedBoard ^. boardColor `shouldBe` board ^. addBoardParametersColor
+          let list :: Text = "Test list 1"
+          postTo ("/boards/" <> fromString (show boardId) <> "/lists") list
+            `shouldRespondWith` 200
+          Just [WithKey listId _listValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 List] >>> hush)
+              <$> get ("/boards/" <> fromString (show boardId) <> "/lists")
+          let card =
+                AddCardParameters
+                  { _addCardParametersName = "Test card 1",
+                    _addCardParametersDescription = "Test card 1 description"
+                  }
+          WithKey (cardId :: Int64) addedCard <-
+            decodedResponse
+              <$> postTo
+                ( "/boards/"
+                    <> fromString (show boardId)
+                    <> "/lists/"
+                    <> fromString (show listId)
+                    <> "/cards"
+                )
+                card
+          liftIO $ addedCard ^. cardName `shouldBe` card ^. addCardParametersName
+          liftIO $ addedCard ^. cardDescription `shouldBe` card ^. addCardParametersDescription
+
+          Just [WithKey _cardId cardValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 Card] >>> hush)
+              <$> get
+                ( "/boards/"
+                    <> fromString (show boardId)
+                    <> "/lists/"
+                    <> fromString (show listId)
+                    <> "/cards"
+                )
+          liftIO $ cardValue ^. cardName `shouldBe` addedCard ^. cardName
+          liftIO $ cardValue ^. cardDescription `shouldBe` addedCard ^. cardDescription
+          liftIO $ cardValue ^. cardCreatedAt `shouldBe` addedCard ^. cardCreatedAt
+          liftIO $ cardValue ^. cardUpdatedAt `shouldBe` addedCard ^. cardUpdatedAt
+          liftIO $ cardValue ^. cardListId `shouldBe` addedCard ^. cardListId
+
+          get
+            ( "/boards/"
+                <> fromString (show boardId)
+                <> "/lists/"
+                <> fromString (show listId)
+                <> "/cards/"
+                <> fromString (show cardId)
+            )
+            `shouldRespondWith` equalDecoded 200 cardValue
+
+          delete ("/boards/" <> fromString (show boardId) <> "/lists/" <> fromString (show listId) <> "/cards/" <> fromString (show cardId))
+            `shouldRespondWith` 204
+
+      describe "PUT /boards/:id/lists/:id/cards/:id" $ do
+        it "can update a card" $ do
+          let board =
+                AddBoardParameters
+                  { _addBoardParametersName = "Test board 1",
+                    _addBoardParametersColor = "green"
+                  }
+          WithKey (boardId :: Int64) addedBoard <- decodedResponse <$> postTo "/boards" board
+          liftIO $ addedBoard ^. boardName `shouldBe` board ^. addBoardParametersName
+          liftIO $ addedBoard ^. boardColor `shouldBe` board ^. addBoardParametersColor
+          let list :: Text = "Test list 1"
+          postTo ("/boards/" <> fromString (show boardId) <> "/lists") list
+            `shouldRespondWith` 200
+          Just [WithKey listId _listValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 List] >>> hush)
+              <$> get ("/boards/" <> fromString (show boardId) <> "/lists")
+          let card =
+                AddCardParameters
+                  { _addCardParametersName = "Test card 1",
+                    _addCardParametersDescription = "Test card 1 description"
+                  }
+          postTo
+            ( "/boards/"
+                <> fromString (show boardId)
+                <> "/lists/"
+                <> fromString (show listId)
+                <> "/cards"
+            )
+            card
+            `shouldRespondWith` 200
+          Just [WithKey cardId cardValue] <-
+            (simpleBody >>> eitherDecode @[WithKey Int64 Card] >>> hush)
+              <$> get
+                ( "/boards/"
+                    <> fromString (show boardId)
+                    <> "/lists/"
+                    <> fromString (show listId)
+                    <> "/cards"
+                )
+          let updatedCard =
+                cardValue & cardName .~ "Test card 2" & cardDescription .~ "Test card 2 description"
+          receivedUpdatedCard <-
+            decodedResponse
+              <$> putTo
+                ( "/boards/"
+                    <> fromString (show boardId)
+                    <> "/lists/"
+                    <> fromString (show listId)
+                    <> "/cards/"
+                    <> fromString (show cardId)
+                )
+                updatedCard
+          liftIO $ receivedUpdatedCard ^. cardName `shouldBe` updatedCard ^. cardName
+          liftIO $ receivedUpdatedCard ^. cardDescription `shouldBe` updatedCard ^. cardDescription
 
 {-# START_FILE test/TestUtilities.hs #-}
+{-# LANGUAGE QuasiQuotes #-}
+
 module TestUtilities where
 
 import Control.Concurrent (forkIO, killThread)
-import Database
-import Database.Persist (Filter, deleteWhere)
+import Database.PostgreSQL.Simple
+import Database.PostgreSQL.Simple.SqlQQ (sql)
+import Database.PostgreSQL.Simple.Utilities (runDB)
 import Network.HTTP.Types.Method
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
-import Network.Wai.Test (SResponse)
+import Network.Wai.Test (SResponse (..))
 import Qtility
 import Test.Hspec.Wai
 import Types
+import Utilities
+
+deleteCards :: Connection -> IO ()
+deleteCards connection =
+  void $ execute_ connection [sql|DELETE FROM card|]
+
+deleteLists :: Connection -> IO ()
+deleteLists connection =
+  void $ execute_ connection [sql|DELETE FROM list|]
+
+deleteBoards :: Connection -> IO ()
+deleteBoards connection =
+  void $ execute_ connection [sql|DELETE FROM board|]
 
 setupServer :: App -> Application -> IO () -> IO ()
-setupServer App {_appConnectionPool = pool} app action = do
-  runReaderT (runDB $ deleteWhere ([] :: [Filter Sprint])) pool
-  bracket (forkIO $ run 8888 app) killThread (const action)
+setupServer app application action = do
+  runAppM app $ do
+    runSqlFiles ["db/02-create-tables.sql"]
+    runDB deleteCards
+    runDB deleteLists
+    runDB deleteBoards
+  bracket (forkIO $ run 8888 application) killThread (const action)
 
 postTo :: (ToJSON a) => ByteString -> a -> WaiSession st SResponse
 postTo path value =
   request methodPost path [("Content-Type", "application/json")] (encode value)
+
+decodedResponse :: (FromJSON a) => SResponse -> a
+decodedResponse response = case eitherDecode $ simpleBody response of
+  Left err -> error err
+  Right val -> val
 
 putTo :: (ToJSON a) => ByteString -> a -> WaiSession st SResponse
 putTo path value =
@@ -588,7 +1186,6 @@ equalDecoded matcher a = matcher {matchBody = MatchBody $ matchDecodedValue a}
       if decodedBody == a'
         then Nothing
         else Just $ "Expected: " ++ show a' ++ "\nActual: " ++ show decodedBody
-
 
 {-# START_FILE default.nix #-}
 let
@@ -685,6 +1282,46 @@ services:
 volumes:
   {{name}}-db:
 
+{-# START_FILE db/01-create-dbs.sql #-}
+CREATE DATABASE "{{name}}" WITH OWNER postgres;
+CREATE DATABASE "{{name}}-web-test" WITH OWNER postgres;
+
+{-# START_FILE db/02-create-tables.sql #-}
+SET LOCAL client_min_messages = warning;
+
+CREATE TABLE IF NOT EXISTS "board" (
+  "id" serial PRIMARY KEY,
+  "name" text NOT NULL,
+  "color" text NOT NULL,
+  "created_at" timestamp with time zone NOT NULL,
+  "updated_at" timestamp with time zone NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "list" (
+  "id" serial PRIMARY KEY,
+  "board_id" serial REFERENCES "board" (id),
+  "name" text NOT NULL,
+  "created_at" timestamp with time zone NOT NULL,
+  "updated_at" timestamp with time zone NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "label" (
+  "id" serial PRIMARY KEY,
+  "name" text NOT NULL,
+  "color" text NOT NULL,
+  "created_at" timestamp with time zone NOT NULL,
+  "updated_at" timestamp with time zone NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "card" (
+  "id" serial PRIMARY KEY,
+  "list_id" serial REFERENCES "list" (id),
+  "name" text NOT NULL,
+  "description" text NOT NULL,
+  "created_at" timestamp with time zone NOT NULL,
+  "updated_at" timestamp with time zone NOT NULL
+);
+
 {-# START_FILE hie.yml #-}
 cradle:
   stack:
@@ -774,3 +1411,5 @@ networks:
 API template using [Servant](https://docs.servant.dev/en/stable/).
 
 Start editing code in the `src` directory!
+
+Run tests with `stack test --fast --file-watch`!
