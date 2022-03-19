@@ -1164,7 +1164,7 @@ module TestUtilities where
 import Control.Concurrent (forkIO, killThread)
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.SqlQQ (sql)
-import Database.PostgreSQL.Simple.Utilities (doesDatabaseExist, runDB, runMasterDB)
+import Database.PostgreSQL.Simple.Utilities (createDatabaseIfNotExists, runDB)
 import Network.HTTP.Types.Method
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
