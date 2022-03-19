@@ -827,10 +827,10 @@ allow-different-user: true
 
 extra-deps:
 - github: quanterall/qtility
-  commit: 2b3ffaec6356cbd63bda8066d1a0b1951b3bc190
+  commit: 5819da15673c78912be0d2506121ebac533847c5
   subdirs:
   - qtility
-  # nix-sha256: sha256-miT8ika1YNKF+hz8mas2L616SMCsPYSOxpyniHxqjkQ=
+  # nix-sha256: sha256-+UNCxP1gNPHEozqdba5PRXVdSEDrVCa+qBxp/ajBSPc=
 
 nix:
   enable: false
@@ -1134,7 +1134,7 @@ module TestUtilities where
 import Control.Concurrent (forkIO, killThread)
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.SqlQQ (sql)
-import Database.PostgreSQL.Simple.Utilities (runDB)
+import Database.PostgreSQL.Simple.Utilities (doesDatabaseExist, runDB, runMasterDB)
 import Network.HTTP.Types.Method
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
@@ -1159,6 +1159,9 @@ deleteBoards connection =
 setupServer :: App -> Application -> IO () -> IO ()
 setupServer app application action = do
   runAppM app $ do
+    runMasterDB $ \connection -> do
+      unlessM (doesDatabaseExist "{{name}}-web-test" connection) $ do
+        void $ execute_ connection [sql|CREATE DATABASE "{{name}}-web-test" WITH OWNER postgres|]
     runSqlFiles ["db/02-create-tables.sql"]
     runDB deleteCards
     runDB deleteLists
