@@ -860,7 +860,7 @@ extra-deps:
   commit: 5819da15673c78912be0d2506121ebac533847c5
   subdirs:
   - qtility
-  # nix-sha256: sha256-+UNCxP1gNPHEozqdba5PRXVdSEDrVCa+qBxp/ajBSPc=
+  # nix-sha256: sha256-e7flhkPcioLhG7zRMtsZTj63Tey51ndqxBlqGAPw7tE=
 
 nix:
   enable: false
