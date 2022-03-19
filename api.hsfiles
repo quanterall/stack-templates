@@ -58,6 +58,13 @@ runServer :: Options -> IO ()
 runServer options = do
   logOptions <- logOptionsHandle stdout (options ^. optionsVerbose)
   withLogFunc logOptions $ \logFunc -> do
+    masterPool <-
+      createPool
+        (connectPostgreSQL "host=localhost port=5432 user=postgres password=postgres dbname=postgres")
+        close
+        1
+        2
+        5 
     pool <-
       createPool
         (connectPostgreSQL "host=localhost port=5432 user=postgres password=postgres dbname={{name}}")
@@ -65,13 +72,26 @@ runServer options = do
         1
         2
         10
-    let initialState = App {_appPostgresqlPool = pool, _appLogFunc = logFunc, _appOptions = options}
+    let initialState =
+          App
+            { _appPostgresqlPool = pool,
+              _appPostgresqlMasterPool = masterPool,
+              _appLogFunc = logFunc,
+              _appOptions = options
+            }
     runRIO pool $ runSqlFiles ["db/02-create-tables.sql"]
     run (options ^. optionsPort) $ application initialState
 
 createApplication :: Options -> IO (App, Application)
 createApplication options = do
   let connectionString = "host=localhost port=5432 user=postgres password=postgres dbname="
+  masterPool <-
+      createPool
+        (connectPostgreSQL "host=localhost port=5432 user=postgres password=postgres dbname=postgres")
+        close
+        1
+        2
+        5 
   pool <-
     createPool
       (connectPostgreSQL $ connectionString <> (options ^. optionsDatabase . unwrap))
@@ -79,7 +99,13 @@ createApplication options = do
       1
       2
       10
-  let app = App {_appPostgresqlPool = pool, _appLogFunc = mempty, _appOptions = options}
+  let app =
+        App
+          { _appPostgresqlPool = pool,
+            _appPostgresqlMasterPool = masterPool,
+            _appLogFunc = mempty,
+            _appOptions = options
+          }
   pure (app, application app)
 
 {-# START_FILE src/Utilities.hs #-}
@@ -110,7 +136,7 @@ import Data.Pool (Pool)
 import Database.PostgreSQL.Simple (Connection)
 import Database.PostgreSQL.Simple.FromField (FromField (..))
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
-import Database.PostgreSQL.Simple.Utilities (HasPostgresqlPool (..))
+import Database.PostgreSQL.Simple.Utilities (HasPostgresqlPool (..), HasPostgresqlMasterPool (..))
 import Qtility
 import Qtility.TH.OpenApi (deriveSchema)
 import RIO.Time (UTCTime)
@@ -229,6 +255,7 @@ runAppM = runRIO
 
 data App = App
   { _appPostgresqlPool :: !(Pool Connection),
+    _appPostgresqlMasterPool :: !(Pool Connection),
     _appLogFunc :: !LogFunc,
     _appOptions :: !Options
   }
@@ -274,6 +301,9 @@ foldMapM deriveSchema [''Board, ''List, ''Label, ''Card, ''AddBoardParameters, '
 
 instance HasPostgresqlPool App where
   postgresqlPoolL = appPostgresqlPool
+
+instance HasPostgresqlMasterPool App where
+  postgresqlPoolL = appPostgresqlMasterPool
 
 {-# START_FILE src/API.hs #-}
 {-# LANGUAGE DataKinds #-}
