@@ -303,7 +303,7 @@ instance HasPostgresqlPool App where
   postgresqlPoolL = appPostgresqlPool
 
 instance HasPostgresqlMasterPool App where
-  postgresqlPoolL = appPostgresqlMasterPool
+  postgresqlMasterPoolL = appPostgresqlMasterPool
 
 {-# START_FILE src/API.hs #-}
 {-# LANGUAGE DataKinds #-}
