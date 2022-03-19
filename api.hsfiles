@@ -1189,9 +1189,7 @@ deleteBoards connection =
 setupServer :: App -> Application -> IO () -> IO ()
 setupServer app application action = do
   runAppM app $ do
-    runMasterDB $ \connection -> do
-      unlessM (doesDatabaseExist "{{name}}-web-test" connection) $ do
-        void $ execute_ connection [sql|CREATE DATABASE "{{name}}-web-test" WITH OWNER postgres|]
+    createDatabaseIfNotExists "{{name}}-web-test" "postgres"
     runSqlFiles ["db/02-create-tables.sql"]
     runDB deleteCards
     runDB deleteLists
