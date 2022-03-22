@@ -180,6 +180,7 @@ description:         Please see the README on Github at <https://github.com/{{gi
 dependencies:
 - base >= 4.11 && < 10
 - qtility
+- rio
 
 default-extensions:
 - ApplicativeDo
