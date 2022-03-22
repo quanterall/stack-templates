@@ -7,7 +7,7 @@ packages:
 allow-different-user: true
 
 nix:
-  enable: true
+  enable: false
   packages: []
 
 {-# START_FILE .devcontainer/docker-compose.yaml #-}

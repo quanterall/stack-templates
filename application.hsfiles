@@ -4,11 +4,18 @@ resolver: lts-18.14
 packages:
 - .
 
-allow-different-user: true
+extra-deps:
+- github: quanterall/qtility
+  commit: 812aa14629ede252796b9b6d9324cfe329e63841
+  subdirs:
+  - qtility
+  # nix-sha256: sha256-e7flhkPcioLhG7zRMtsZTj63Tey51ndqxBlqGAPw7tE=
 
 nix:
-  enable: true
-  packages: []
+  enable: false
+  packages: 
+  - zlib
+  - postgresql
 
 {-# START_FILE .devcontainer/docker-compose.yaml #-}
 version: '3'
