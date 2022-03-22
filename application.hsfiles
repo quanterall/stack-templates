@@ -126,7 +126,8 @@ main = defaultMain
 {-# LANGUAGE TemplateHaskell #-}
 module Main (main) where
 
-import Import
+import Qtility
+import Types
 import Run
 import RIO.Process
 import Options.Applicative.Simple
@@ -267,19 +268,11 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
 
-{-# START_FILE src/Import.hs #-}
-module Import
-  ( module RIO
-  , module Types
-  ) where
-
-import Qtility
-import Types
-
 {-# START_FILE src/Run.hs #-}
 module Run (run) where
 
-import Import
+import Qtility
+import Types
 
 run :: RIO App ()
 run = do
@@ -326,7 +319,8 @@ plus2 = (+ 2)
 {-# START_FILE test/UtilSpec.hs #-}
 module UtilSpec (spec) where
 
-import Import
+import Qtility
+import Types
 import Util
 import Test.Hspec
 import Test.Hspec.QuickCheck
