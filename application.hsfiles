@@ -179,7 +179,7 @@ description:         Please see the README on Github at <https://github.com/{{gi
 
 dependencies:
 - base >= 4.11 && < 10
-- rio >= 0.1.12.0
+- qtility
 
 default-extensions:
 - ApplicativeDo
@@ -272,7 +272,7 @@ module Import
   , module Types
   ) where
 
-import RIO
+import Qtility
 import Types
 
 {-# START_FILE src/Run.hs #-}
@@ -287,7 +287,7 @@ run = do
 {-# START_FILE src/Types.hs #-}
 module Types where
 
-import RIO
+import Qtility
 import RIO.Process
 
 -- | Command line arguments
@@ -314,7 +314,7 @@ module Util
   ( plus2
   ) where
 
-import RIO
+import Qtility
 
 plus2 :: Int -> Int
 plus2 = (+ 2)
