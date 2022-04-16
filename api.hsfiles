@@ -857,10 +857,10 @@ allow-different-user: true
 
 extra-deps:
 - github: quanterall/qtility
-  commit: 812aa14629ede252796b9b6d9324cfe329e63841
+  commit: f8bd42f37965f789e3237bdee8b8c87fa0665a2f
   subdirs:
   - qtility
-  # nix-sha256: sha256-e7flhkPcioLhG7zRMtsZTj63Tey51ndqxBlqGAPw7tE=
+  # nix-sha256: sha256-LrzW1x9WLHs8eM1zNA8VcaL4TSvdTcDq15OJTt8+1SM=
 
 nix:
   enable: false
