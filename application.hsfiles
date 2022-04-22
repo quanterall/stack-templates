@@ -118,6 +118,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 `stack test`
 
+## Development
+
+You can run a local hoogle instance by issuing the following commands to make
+the hoogle script executable and starting the hoogle server:
+
+```bash
+$ chmod +x dev-scripts/run-hoogle.sh
+$ ./dev-scripts/run-hoogle.sh
+```
+
+The repository comes with a `.vscode/settings.json` file that sets the hoogle
+vscode extension to point to the local hoogle instance, which means you can get
+instant results right in your editor by bringing up the command palette and
+executing "Hoogle Search" (or by pressing Shift+Alt+H by default).
+
 {-# START_FILE Setup.hs #-}
 import Distribution.Simple
 main = defaultMain
@@ -403,3 +418,13 @@ import qualified Prelude
 	// List of extensions recommended by VS Code that should not be recommended for users of this workspace.
 	"unwantedRecommendations": []
 }
+
+{-# START_FILE .vscode/settings.json #-}
+{
+  "hoogle-vscode.url": "http://localhost:8888/",
+}
+
+{-# START_FILE dev-scripts/run-hoogle.sh #-}
+#!/usr/bin/env sh
+
+hoogle serve --local --port 8888
