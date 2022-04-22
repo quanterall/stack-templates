@@ -111,8 +111,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## Execute  
 
-* Run `stack exec -- {{name}}-exe` to see "We're inside the application!"
-* With `stack exec -- {{name}}-exe --verbose` you will see the same message, with more logging.
+* Run `stack exec -- {{name}}` to see "We're inside the application!"
+* With `stack exec -- {{name}} --verbose` you will see the same message, with more logging.
 
 ## Run tests
 
@@ -243,7 +243,7 @@ library:
   source-dirs: src
 
 executables:
-  {{name}}-exe:
+  {{name}}:
     main:                Main.hs
     source-dirs:         app
     dependencies:
