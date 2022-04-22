@@ -264,3 +264,15 @@ import qualified Prelude
 	// List of extensions recommended by VS Code that should not be recommended for users of this workspace.
 	"unwantedRecommendations": []
 }
+
+{-# START_FILE .vscode/settings.json #-}
+{
+  "hoogle-vscode.url": "http://localhost:8888/",
+  "hoogle-vscode.maxResults": 10,
+  "hoogle-webview.hoogleUrl": "http://localhost:8888/"  
+}
+
+{-# START_FILE dev-scripts/run-hoogle.sh #-}
+#!/usr/bin/env sh
+
+hoogle serve --host localhost --port 8888 --no-security-headers

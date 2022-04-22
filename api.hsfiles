@@ -1463,3 +1463,15 @@ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPO
 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+{-# START_FILE .vscode/settings.json #-}
+{
+  "hoogle-vscode.url": "http://localhost:8888/",
+  "hoogle-vscode.maxResults": 10,
+  "hoogle-webview.hoogleUrl": "http://localhost:8888/"  
+}
+
+{-# START_FILE dev-scripts/run-hoogle.sh #-}
+#!/usr/bin/env sh
+
+hoogle serve --host localhost --port 8888 --no-security-headers
