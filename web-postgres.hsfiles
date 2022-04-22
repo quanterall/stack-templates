@@ -10917,7 +10917,8 @@ import qualified Prelude
     "sleistner.vscode-fileutils",
     "fayras.simple-new-file",
     "jcanero.hoogle-vscode",
-    "mel-brown.haskell-yesod-quasiquotes"
+    "mel-brown.haskell-yesod-quasiquotes",
+    "GoNZooo.hoogle-webview"
 	],
 	// List of extensions recommended by VS Code that should not be recommended for users of this workspace.
 	"unwantedRecommendations": []

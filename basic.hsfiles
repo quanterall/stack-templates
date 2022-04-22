@@ -258,7 +258,8 @@ import qualified Prelude
     "gonzooo.at-notes",
     "sleistner.vscode-fileutils",
     "fayras.simple-new-file",
-    "jcanero.hoogle-vscode"
+    "jcanero.hoogle-vscode",
+    "GoNZooo.hoogle-webview"
 	],
 	// List of extensions recommended by VS Code that should not be recommended for users of this workspace.
 	"unwantedRecommendations": []
