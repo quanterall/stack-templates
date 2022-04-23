@@ -1474,4 +1474,4 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 {-# START_FILE dev-scripts/run-hoogle.sh #-}
 #!/usr/bin/env sh
 
-hoogle serve --host localhost --port 8888 --no-security-headers
+hoogle serve --local --host localhost --port 8888 --no-security-headers
