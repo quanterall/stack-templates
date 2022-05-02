@@ -112,8 +112,8 @@ createApplication options = do
 module Utilities where
 
 import Database.PostgreSQL.Simple
-import Database.PostgreSQL.Simple.Utilities
 import Qtility
+import Qtility.Database
 import qualified RIO.Text as Text
 
 runSqlFiles ::
@@ -136,8 +136,8 @@ import Data.Pool (Pool)
 import Database.PostgreSQL.Simple (Connection)
 import Database.PostgreSQL.Simple.FromField (FromField (..))
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
-import Database.PostgreSQL.Simple.Utilities (HasPostgresqlPool (..), HasPostgresqlMasterPool (..))
 import Qtility
+import Qtility.Database (HasPostgresqlPool (..), HasPostgresqlMasterPool (..))
 import Qtility.TH.OpenApi (deriveSchema)
 import RIO.Time (UTCTime)
 
@@ -411,9 +411,9 @@ getApiSchema = do
 {-# START_FILE src/Handlers.hs #-}
 module Handlers where
 
-import Database.PostgreSQL.Simple.Utilities
 import qualified Database.Queries as Queries
 import Qtility
+import Qtility.Database
 import RIO.Time (getCurrentTime)
 import Types
 
@@ -857,10 +857,11 @@ allow-different-user: true
 
 extra-deps:
 - github: quanterall/qtility
-  commit: 9e4d1ffc12aa349dfd3ce72c8216cad4eee4a69b
+  commit: 3c8f42c1e5380e3c7ecc9430c23882422405d4a5
   subdirs:
   - qtility
-  # nix-sha256: sha256-vS92TIgF99So9tg/w60eCdpgl1NkMvTeN1mac8CpeVY=
+  - qtility-db
+  # nix-sha256: sha256-92asx1Xzh2mxgCbayFh6L3p6cSXznlw+jkoOTqibEiI=
 
 nix:
   enable: false
@@ -1164,12 +1165,12 @@ module TestUtilities where
 import Control.Concurrent (forkIO, killThread)
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.SqlQQ (sql)
-import Database.PostgreSQL.Simple.Utilities (createDatabaseIfNotExists, runDB)
 import Network.HTTP.Types.Method
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Network.Wai.Test (SResponse (..))
 import Qtility
+import Qtility.Database (createDatabaseIfNotExists, runDB)
 import Test.Hspec.Wai
 import Types
 import Utilities
