@@ -47,9 +47,10 @@ import Database.PostgreSQL.Simple
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Qtility
-import Qtility.Database (runDB)
+import Qtility.Database (runDB, runMasterDB')
 import Qtility.Database.Migration (createMigrationTable)
 import Qtility.Database.Migration.Queries (applyMigrations)
+import Qtility.Database.Queries (createDatabaseIfNotExists)
 import Types
 
 runMain :: Options -> IO ()
@@ -96,6 +97,8 @@ createApplication options = do
         1
         2
         5 
+  runRIO masterPool $
+    runMasterDB' $ createDatabaseIfNotExists (options ^. optionsDatabase) "postgres" 
   pool <-
     createPool
       (connectPostgreSQL $ connectionString <> (options ^. optionsDatabase . unwrap))
