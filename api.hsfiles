@@ -829,7 +829,7 @@ extra-deps:
   subdirs:
   - qtility
   - qtility-db
-  # nix-sha256: sha256-92asx1Xzh2mxgCbayFh6L3p6cSXznlw+jkoOTqibEiI=
+  # nix-sha256: sha256-9AAGnNvmFeheZLCmh92U/w8dKEf15CmO9UPlTbZxM3g=
 
 nix:
   enable: false
