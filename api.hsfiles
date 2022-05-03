@@ -47,6 +47,7 @@ import Database.PostgreSQL.Simple
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Qtility
+import Qtility.Database (runDB)
 import Qtility.Database.Migration (createMigrationTable)
 import Qtility.Database.Migration.Queries (applyMigrations)
 import Types
