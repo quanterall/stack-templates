@@ -32,7 +32,7 @@ main = do
             ( long "database"
                 <> short 'd'
                 <> help "Database to use"
-                <> value (DatabaseName "{{name}}")
+                <> value "{{name}}"
             )
       )
       empty
@@ -276,8 +276,6 @@ foldMapM makeLenses [''App, ''Options]
 foldMapM
   deriveLensAndJSON
   [''Board, ''List, ''Label, ''Card, ''AddBoardParameters, ''AddCardParameters]
-
-foldMapM makeWrapped [''DatabaseName]
 
 foldMapM deriveSchema [''Board, ''List, ''Label, ''Card, ''AddBoardParameters, ''AddCardParameters]
 
@@ -861,7 +859,7 @@ spec = do
         Options
           { _optionsPort = 8888,
             _optionsVerbose = False,
-            _optionsDatabase = DatabaseName "{{name}}-web-test"
+            _optionsDatabase = "{{name}}-web-test"
           }
   around_ (setupServer state app) $ do
     with (pure app) $ do
