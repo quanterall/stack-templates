@@ -48,7 +48,6 @@ import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Qtility
 import Types
-import Utilities
 
 runMain :: Options -> IO ()
 runMain options = do
@@ -64,7 +63,7 @@ runServer options = do
         close
         1
         2
-        5 
+        5
     pool <-
       createPool
         (connectPostgreSQL "host=localhost port=5432 user=postgres password=postgres dbname={{name}}")
@@ -79,7 +78,9 @@ runServer options = do
               _appLogFunc = logFunc,
               _appOptions = options
             }
-    runRIO pool $ runSqlFiles ["db/02-create-tables.sql"]
+    runRIO pool $ do
+      migrations <- createMigrationTable Nothing "migrations"
+      runDB $ applyMigrations Nothing migrations
     run (options ^. optionsPort) $ application initialState
 
 createApplication :: Options -> IO (App, Application)
@@ -108,23 +109,6 @@ createApplication options = do
           }
   pure (app, application app)
 
-{-# START_FILE src/Utilities.hs #-}
-module Utilities where
-
-import Database.PostgreSQL.Simple
-import Qtility
-import Qtility.Database
-import qualified RIO.Text as Text
-
-runSqlFiles ::
-  (MonadReader env m, MonadUnliftIO m, HasPostgresqlPool env) =>
-  [FilePath] ->
-  m ()
-runSqlFiles files = do
-  forM_ files $ \f -> do
-    sqlText <- Text.unpack <$> readFileUtf8 f
-    runDB $ flip execute_ (fromString sqlText)
-
 {-# START_FILE src/Types.hs #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -137,7 +121,8 @@ import Database.PostgreSQL.Simple (Connection)
 import Database.PostgreSQL.Simple.FromField (FromField (..))
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Qtility
-import Qtility.Database (HasPostgresqlPool (..), HasPostgresqlMasterPool (..))
+import Qtility.Database (HasPostgresqlMasterPool (..), HasPostgresqlPool (..))
+import Qtility.Database.Types (DatabaseName)
 import Qtility.TH.OpenApi (deriveSchema)
 import RIO.Time (UTCTime)
 
@@ -235,9 +220,6 @@ instance (ToJSON k, ToJSON a) => ToJSON (WithKey k a) where
 instance (FromJSON k, FromJSON a) => FromJSON (WithKey k a) where
   parseJSON = withObject "WithKey" $ \o ->
     WithKey <$> o .: "id" <*> o .: "value"
-
-newtype DatabaseName = DatabaseName {unDatabaseName :: ByteString}
-  deriving (Eq, Show, Read)
 
 newtype OpenApiSchema = OpenApiSchema {unOpenApiSchema :: OpenApi}
   deriving (Eq, Show, Generic, FromJSON, ToJSON)
@@ -521,55 +503,56 @@ module Database.Queries where
 
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.SqlQQ
+import Qtility.Database (DB, HasPostgreSQLConnection (..))
+import Qtility.Database.Queries (queryMany, queryOne)
 import RIO
 import RIO.List.Partial (head)
 import RIO.Time (UTCTime)
 import Types
 
-getBoards :: Connection -> IO [WithKey Int64 Board]
-getBoards connection =
-  query
-    connection
-    [sql|
+getBoards :: DB [WithKey Int64 Board]
+getBoards = do
+  connection <- view postgreSQLConnectionL
+  liftIO $
+    query
+      connection
+      [sql|
       SELECT
         id, name, color, created_at, updated_at
       FROM board
     |]
-    ()
+      ()
 
-getBoard :: Int64 -> Connection -> IO Board
-getBoard boardId connection =
+getBoard :: Int64 -> DB Board
+getBoard boardId = do
+  connection <- view postgreSQLConnectionL
   head
-    <$> query
-      connection
-      [sql|
+    <$> liftIO
+      ( query
+          connection
+          [sql|
         SELECT
           name, color, created_at, updated_at
         FROM board
         WHERE id = ?
       |]
-      (Only boardId)
+          (Only boardId)
+      )
 
-addBoard :: UTCTime -> AddBoardParameters -> Connection -> IO (WithKey Int64 Board)
-addBoard now parameters connection = do
-  [boardWithKey] <-
-    query
-      connection
-      [sql|
-        INSERT INTO board (name, color, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-        RETURNING id, name, color, created_at, updated_at
+addBoard :: UTCTime -> AddBoardParameters -> DB (WithKey Int64 Board)
+addBoard now parameters = do
+  queryOne
+    [sql|
+          INSERT INTO board (name, color, created_at, updated_at)
+          VALUES (?, ?, ?, ?)
+          RETURNING id, name, color, created_at, updated_at
        |]
-      (parameters ^. addBoardParametersName, parameters ^. addBoardParametersColor, now, now)
+    (parameters ^. addBoardParametersName, parameters ^. addBoardParametersColor, now, now)
 
-  pure boardWithKey
-
-updateBoard :: UTCTime -> Int64 -> Board -> Connection -> IO Board
-updateBoard now boardId board connection = do
-  [updatedBoard] <-
-    query
-      connection
-      [sql|
+updateBoard :: UTCTime -> Int64 -> Board -> DB Board
+updateBoard now boardId board = do
+  queryOne
+    [sql|
         UPDATE board
         SET
           name = ?,
@@ -578,24 +561,24 @@ updateBoard now boardId board connection = do
         WHERE id = ?
         RETURNING name, color, created_at, updated_at
       |]
-      (board ^. boardName, board ^. boardColor, now, boardId)
-  pure updatedBoard
+    (board ^. boardName, board ^. boardColor, now, boardId)
 
-deleteBoard :: Int64 -> Connection -> IO ()
-deleteBoard boardId connection =
+deleteBoard :: Int64 -> DB ()
+deleteBoard boardId = do
+  connection <- view postgreSQLConnectionL
   void $
-    execute
-      connection
-      [sql|
+    liftIO $
+      execute
+        connection
+        [sql|
         DELETE FROM board
         WHERE id = ?
       |]
-      (Only boardId)
+        (Only boardId)
 
-getLists :: Int64 -> Connection -> IO [WithKey Int64 List]
-getLists boardId connection =
-  query
-    connection
+getLists :: Int64 -> DB [WithKey Int64 List]
+getLists boardId =
+  queryMany
     [sql|
       SELECT
         id, board_id, name, created_at, updated_at
@@ -604,64 +587,56 @@ getLists boardId connection =
     |]
     (Only boardId)
 
-getList :: Int64 -> Connection -> IO List
-getList listId connection =
-  head
-    <$> query
-      connection
-      [sql|
-        SELECT
-          board_id, name, created_at, updated_at
-        FROM list
-        WHERE id = ?
-      |]
-      (Only listId)
+getList :: Int64 -> DB List
+getList listId =
+  queryOne
+    [sql|
+      SELECT
+        board_id, name, created_at, updated_at
+      FROM list
+      WHERE id = ?
+    |]
+    (Only listId)
 
-deleteList :: Int64 -> Connection -> IO ()
-deleteList listId connection =
+deleteList :: Int64 -> DB ()
+deleteList listId = do
+  connection <- view postgreSQLConnectionL
   void $
-    execute
-      connection
-      [sql|
+    liftIO $
+      execute
+        connection
+        [sql|
         DELETE FROM list
         WHERE id = ?
       |]
-      (Only listId)
+        (Only listId)
 
-addList :: UTCTime -> List -> Connection -> IO (WithKey Int64 List)
-addList now list connection = do
-  [listWithKey] <-
-    query
-      connection
-      [sql|
-        INSERT INTO list (board_id, name, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-        RETURNING id, board_id, name, created_at, updated_at
-       |]
-      (list ^. listBoardId, list ^. listName, now, now)
+addList :: UTCTime -> List -> DB (WithKey Int64 List)
+addList now list = do
+  queryOne
+    [sql|
+      INSERT INTO list (board_id, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+      RETURNING id, board_id, name, created_at, updated_at
+    |]
+    (list ^. listBoardId, list ^. listName, now, now)
 
-  pure listWithKey
+updateList :: UTCTime -> Int64 -> List -> DB List
+updateList now listId list = do
+  queryOne
+    [sql|
+      UPDATE list
+      SET
+        name = ?,
+        updated_at = ?
+      WHERE id = ?
+      RETURNING board_id, name, created_at, updated_at
+    |]
+    (list ^. listName, now, listId)
 
-updateList :: UTCTime -> Int64 -> List -> Connection -> IO List
-updateList now listId list connection = do
-  [updatedBoard] <-
-    query
-      connection
-      [sql|
-        UPDATE list
-        SET
-          name = ?,
-          updated_at = ?
-        WHERE id = ?
-        RETURNING board_id, name, created_at, updated_at
-      |]
-      (list ^. listName, now, listId)
-  pure updatedBoard
-
-getCards :: Int64 -> Connection -> IO [WithKey Int64 Card]
-getCards listId connection =
-  query
-    connection
+getCards :: Int64 -> DB [WithKey Int64 Card]
+getCards listId =
+  queryMany
     [sql|
       SELECT
         id, list_id, name, description, created_at, updated_at
@@ -670,61 +645,53 @@ getCards listId connection =
     |]
     (Only listId)
 
-getCard :: Int64 -> Connection -> IO Card
-getCard cardId connection =
-  head
-    <$> query
-      connection
-      [sql|
-        SELECT
-          list_id, name, description, created_at, updated_at
-        FROM card
-        WHERE id = ?
-      |]
-      (Only cardId)
+getCard :: Int64 -> DB Card
+getCard cardId =
+  queryOne
+    [sql|
+      SELECT
+        list_id, name, description, created_at, updated_at
+      FROM card
+      WHERE id = ?
+    |]
+    (Only cardId)
 
-deleteCard :: Int64 -> Connection -> IO ()
-deleteCard cardId connection =
+deleteCard :: Int64 -> DB ()
+deleteCard cardId = do
+  connection <- view postgreSQLConnectionL
   void $
-    execute
-      connection
-      [sql|
-        DELETE FROM card
-        WHERE id = ?
-      |]
-      (Only cardId)
+    liftIO $
+      execute
+        connection
+        [sql|
+          DELETE FROM card
+          WHERE id = ?
+        |]
+        (Only cardId)
 
-addCard :: UTCTime -> Card -> Connection -> IO (WithKey Int64 Card)
-addCard now card connection = do
-  [cardWithKey] <-
-    query
-      connection
-      [sql|
-        INSERT INTO card (list_id, name, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-        RETURNING id, list_id, name, description, created_at, updated_at
-       |]
-      (card ^. cardListId, card ^. cardName, card ^. cardDescription, now, now)
+addCard :: UTCTime -> Card -> DB (WithKey Int64 Card)
+addCard now card = do
+  queryOne
+    [sql|
+      INSERT INTO card (list_id, name, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      RETURNING id, list_id, name, description, created_at, updated_at
+    |]
+    (card ^. cardListId, card ^. cardName, card ^. cardDescription, now, now)
 
-  pure cardWithKey
-
-updateCard :: UTCTime -> Int64 -> Card -> Connection -> IO Card
-updateCard now cardId card connection = do
-  [updatedCard] <-
-    query
-      connection
-      [sql|
-        UPDATE card
-        SET
-          name = ?,
-          description = ?,
-          updated_at = ?
-        WHERE id = ?
-        RETURNING list_id, name, description, created_at, updated_at
-      |]
-      (card ^. cardName, card ^. cardDescription, now, cardId)
-  pure updatedCard
-
+updateCard :: UTCTime -> Int64 -> Card -> DB Card
+updateCard now cardId card = do
+  queryOne
+    [sql|
+      UPDATE card
+      SET
+        name = ?,
+        description = ?,
+        updated_at = ?
+      WHERE id = ?
+      RETURNING list_id, name, description, created_at, updated_at
+    |]
+    (card ^. cardName, card ^. cardDescription, now, cardId)
 
 {-# START_FILE package.yaml #-}
 name:    {{name}}
@@ -752,6 +719,7 @@ dependencies:
 - servant-openapi3
 - openapi3
 - qtility
+- qtility-db
 - wai
 - wai-cors
 - warp
@@ -857,7 +825,7 @@ allow-different-user: true
 
 extra-deps:
 - github: quanterall/qtility
-  commit: 3c8f42c1e5380e3c7ecc9430c23882422405d4a5
+  commit: 362e5b8d92fc74ff401010a8f6e760d99f7db7f0
   subdirs:
   - qtility
   - qtility-db
@@ -1170,28 +1138,32 @@ import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Network.Wai.Test (SResponse (..))
 import Qtility
-import Qtility.Database (createDatabaseIfNotExists, runDB)
+import Qtility.Database (DB, HasPostgreSQLConnection (..), runDB)
+import Qtility.Database.Migration (createMigrationTable)
+import Qtility.Database.Migration.Queries (applyMigrations)
 import Test.Hspec.Wai
 import Types
-import Utilities
 
-deleteCards :: Connection -> IO ()
-deleteCards connection =
-  void $ execute_ connection [sql|DELETE FROM card|]
+deleteCards :: DB ()
+deleteCards = do
+  connection <- view postgreSQLConnectionL
+  liftIO $ void $ execute_ connection [sql|DELETE FROM card|]
 
-deleteLists :: Connection -> IO ()
-deleteLists connection =
-  void $ execute_ connection [sql|DELETE FROM list|]
+deleteLists :: DB ()
+deleteLists = do
+  connection <- view postgreSQLConnectionL
+  liftIO $ void $ execute_ connection [sql|DELETE FROM list|]
 
-deleteBoards :: Connection -> IO ()
-deleteBoards connection =
-  void $ execute_ connection [sql|DELETE FROM board|]
+deleteBoards :: DB ()
+deleteBoards = do
+  connection <- view postgreSQLConnectionL
+  liftIO $ void $ execute_ connection [sql|DELETE FROM board|]
 
 setupServer :: App -> Application -> IO () -> IO ()
 setupServer app application action = do
   runAppM app $ do
-    createDatabaseIfNotExists "{{name}}-web-test" "postgres"
-    runSqlFiles ["db/02-create-tables.sql"]
+    migrations <- createMigrationTable Nothing "migrations"
+    runDB $ applyMigrations Nothing migrations
     runDB deleteCards
     runDB deleteLists
     runDB deleteBoards
@@ -1315,11 +1287,7 @@ services:
 volumes:
   {{name}}-db:
 
-{-# START_FILE db/01-create-dbs.sql #-}
-CREATE DATABASE "{{name}}" WITH OWNER postgres;
-CREATE DATABASE "{{name}}-web-test" WITH OWNER postgres;
-
-{-# START_FILE db/02-create-tables.sql #-}
+{-# START_FILE migrations/2022-05-03_10-39-08_-_create-tables.sql #-}
 SET LOCAL client_min_messages = warning;
 
 CREATE TABLE IF NOT EXISTS "board" (
@@ -1354,6 +1322,14 @@ CREATE TABLE IF NOT EXISTS "card" (
   "created_at" timestamp with time zone NOT NULL,
   "updated_at" timestamp with time zone NOT NULL
 );
+
+
+-- DOWN
+
+DROP TABLE "board";
+DROP TABLE "list";
+DROP TABLE "label";
+DROP TABLE "card";
 
 {-# START_FILE hie.yml #-}
 cradle:
