@@ -69,7 +69,7 @@ cradle:
     - path: "./app/Main.hs"
       component: "{{name}}:exe:{{name}}"
 
-    - path: "./app/Paths_latest_qtility_nix.hs"
+    - path: "./app/Paths_{{name-as-varid}}.hs"
       component: "{{name}}:exe:{{name}}"
 
     - path: "./test"
@@ -360,7 +360,7 @@ main = defaultMain
 module Main (main) where
 
 import Options.Applicative.Simple
-import qualified Paths_latest_qtility_nix
+import qualified Paths_{{name-as-varid}}
 import Qtility
 import Run
 import Types
@@ -369,7 +369,7 @@ main :: IO ()
 main = do
   (options, ()) <-
     simpleOptions
-      $(simpleVersion Paths_latest_qtility_nix.version)
+      $(simpleVersion Paths_{{name-as-varid}}.version)
       "Header for command line arguments"
       "Program description, also for command line arguments"
       ( Options
