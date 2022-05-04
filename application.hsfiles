@@ -17,6 +17,9 @@ nix:
   - zlib
   - postgresql
 
+{-# START_FILE .env #-}
+# Put environment values here
+
 {-# START_FILE .devcontainer/docker-compose.yaml #-}
 version: '3'
 
@@ -60,7 +63,17 @@ networks:
 {-# START_FILE hie.yaml #-}
 cradle:
   stack:
-        component: {{name}}:lib
+    - path: "./src"
+      component: "{{name}}:lib"
+
+    - path: "./app/Main.hs"
+      component: "{{name}}:exe:{{name}}"
+
+    - path: "./app/Paths_latest_qtility_nix.hs"
+      component: "{{name}}:exe:{{name}}"
+
+    - path: "./test"
+      component: "{{name}}:test:{{name}}-test"
 
 {-# START_FILE .gitignore #-}
 *~
@@ -139,37 +152,38 @@ main = defaultMain
 
 {-# START_FILE app/Main.hs #-}
 {-# LANGUAGE TemplateHaskell #-}
+
 module Main (main) where
 
-import Qtility
-import Types
-import Run
-import RIO.Process
 import Options.Applicative.Simple
-import qualified Paths_{{name-as-varid}}
+import qualified Paths_latest_qtility_nix
+import Qtility
+import Run
+import Types
 
 main :: IO ()
 main = do
-  (options, ()) <- simpleOptions
-    $(simpleVersion Paths_{{name-as-varid}}.version)
-    "Header for command line arguments"
-    "Program description, also for command line arguments"
-    (Options
-       <$> switch ( long "verbose"
-                 <> short 'v'
-                 <> help "Verbose output?"
-                  )
-    )
-    empty
-  lo <- logOptionsHandle stderr (optionsVerbose options)
-  pc <- mkDefaultProcessContext
-  withLogFunc lo $ \lf ->
-    let app = App
-          { appLogFunc = lf
-          , appProcessContext = pc
-          , appOptions = options
-          }
-     in runRIO app run
+  (options, ()) <-
+    simpleOptions
+      $(simpleVersion Paths_latest_qtility_nix.version)
+      "Header for command line arguments"
+      "Program description, also for command line arguments"
+      ( Options
+          <$> switch
+            ( long "verbose"
+                <> short 'v'
+                <> help "Verbose output?"
+            )
+          <*> strOption
+            ( long "environment-file"
+                <> short 'e'
+                <> metavar "DOTENV_FILE"
+                <> help "Environment file to load during startup"
+                <> value ".env"
+            )
+      )
+      empty
+  run options
 
 {-# START_FILE package.yaml #-}
 name:                {{name}}
@@ -287,52 +301,60 @@ tests:
 module Run (run) where
 
 import Qtility
+import RIO.Process (mkDefaultProcessContext)
 import Types
 
-run :: RIO App ()
-run = do
+run :: Options -> IO ()
+run options = do
+  loadDotEnvFile $ options ^. optionsEnvironmentFile
+  lo <- logOptionsHandle stderr (options ^. optionsVerbose)
+  pc <- mkDefaultProcessContext
+  withLogFunc lo $ \lf ->
+    let app =
+          App
+            { _appLogFunc = lf,
+              _appProcessContext = pc,
+              _appOptions = options
+            }
+     in runRIO app runApp
+
+runApp :: RIO App ()
+runApp = do
   logInfo "We're inside the application!"
 
 {-# START_FILE src/Types.hs #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Types where
 
 import Qtility
-import RIO.Process
+import RIO.Process (HasProcessContext (..), ProcessContext)
 
 -- | Command line arguments
 data Options = Options
-  { optionsVerbose :: !Bool
+  { _optionsVerbose :: !Bool,
+    _optionsEnvironmentFile :: !EnvironmentFile
   }
 
 data App = App
-  { appLogFunc :: !LogFunc
-  , appProcessContext :: !ProcessContext
-  , appOptions :: !Options
-  -- Add other app-specific configuration information here
+  { _appLogFunc :: !LogFunc,
+    _appProcessContext :: !ProcessContext,
+    _appOptions :: !Options
   }
 
+foldMapM makeLenses [''Options, ''App]
+
 instance HasLogFunc App where
-  logFuncL = lens appLogFunc (\x y -> x { appLogFunc = y })
+  logFuncL = appLogFunc
+
 instance HasProcessContext App where
-  processContextL = lens appProcessContext (\x y -> x { appProcessContext = y })
-
-{-# START_FILE src/Util.hs #-}
--- | Silly utility module, used to demonstrate how to write a test
--- case.
-module Util
-  ( plus2
-  ) where
-
-import Qtility
-
-plus2 :: Int -> Int
-plus2 = (+ 2)
+  processContextL = appProcessContext
 
 {-# START_FILE test/Spec.hs #-}
 {-# OPTIONS_GHC -F -pgmF hspec-discover #-}
 
-{-# START_FILE test/UtilSpec.hs #-}
-module UtilSpec (spec) where
+{-# START_FILE test/ExampleSpec.hs #-}
+module ExampleSpec (spec) where
 
 import Qtility
 import Types
@@ -342,10 +364,9 @@ import Test.Hspec.QuickCheck
 
 spec :: Spec
 spec = do
-  describe "plus2" $ do
-    it "basic check" $ plus2 0 `shouldBe` 2
-    it "overflow" $ plus2 maxBound `shouldBe` minBound + 1
-    prop "minus 2" $ \i -> plus2 i - 2 `shouldBe` i
+  describe "`True` is `True`" $ do
+    it "is so" $ do
+      True `shouldBe` True
 
 {-# START_FILE default.nix #-}
 let
