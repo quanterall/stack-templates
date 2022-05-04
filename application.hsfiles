@@ -562,7 +562,6 @@ module ExampleSpec (spec) where
 
 import Qtility
 import Types
-import Util
 import Test.Hspec
 import Test.Hspec.QuickCheck
 
