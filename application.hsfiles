@@ -331,6 +331,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 * Run `stack exec -- {{name}}` to see "We're inside the application!"
 * With `stack exec -- {{name}} --verbose` you will see the same message, with more logging.
 
+## Install
+
+Run `stack install` followed by `{{name}} --help` in order to see which command line options are
+available.
+
 ## Run tests
 
 `stack test`
