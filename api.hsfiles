@@ -829,14 +829,13 @@ allow-different-user: true
 
 extra-deps:
 - github: quanterall/qtility
-  commit: 362e5b8d92fc74ff401010a8f6e760d99f7db7f0
+  commit: 01c4fc42756611da9d3dc04e9ac71ece6ae67268
   subdirs:
   - qtility
   - qtility-db
-  # nix-sha256: sha256-9AAGnNvmFeheZLCmh92U/w8dKEf15CmO9UPlTbZxM3g=
+  # nix-sha256: sha256-n5zns3D/o1/J/3NJjTBkD9xXM/Lx9uR1BjDHOnoO9ew=
 
 nix:
-  enable: false
   packages: 
   - zlib
   - postgresql
