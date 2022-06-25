@@ -820,7 +820,7 @@ tests:
     - http-types
 
 {-# START_FILE stack.yaml #-}
-resolver: lts-18.14
+resolver: lts-18.28
 
 packages:
 - .
@@ -1572,7 +1572,7 @@ version: '3'
 
 services:
   {{name}}:
-    image: gonz/quanterall-application-development:lts-18.14
+    image: gonz/quanterall-application-development:lts-18.28
     volumes:
       - ..:/workspace:cached
       - ./build/stack-work:/workspace/.stack-work:cached

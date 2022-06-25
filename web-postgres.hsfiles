@@ -1,5 +1,5 @@
 {-# START_FILE stack.yaml #-}
-resolver: lts-18.14
+resolver: lts-18.28
 
 packages:
 - .
@@ -21,7 +21,7 @@ version: '3'
 
 services:
   {{name}}:
-    image: gonz/quanterall-web-development:lts-18.14
+    image: gonz/quanterall-web-development:lts-18.28
     ports:
       - 3000:3000
     volumes:
