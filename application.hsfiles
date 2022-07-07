@@ -6,10 +6,10 @@ packages:
 
 extra-deps:
 - github: quanterall/qtility
-  commit:  commit: feebd3658c48ca15caea9007f2a545019a246521
+  commit:  feebd3658c48ca15caea9007f2a545019a246521
   subdirs:
   - qtility
-  # nix-sha256: sha256-GKn9DqlG5TdJVoUXRaYxXN8UPxgSq/coswpc4O049Eg= 01c4fc42756611da9d3dc04e9ac71ece6ae67268
+  # nix-sha256: sha256-GKn9DqlG5TdJVoUXRaYxXN8UPxgSq/coswpc4O049Eg=
 
 nix:
   packages: 
