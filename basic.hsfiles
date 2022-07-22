@@ -321,6 +321,7 @@ default-extensions:
 - MultiWayIf
 - NamedFieldPuns
 - NoImplicitPrelude
+- NumericUnderscores
 - OverloadedStrings
 - PartialTypeSignatures
 - PatternGuards
