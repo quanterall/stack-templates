@@ -1336,7 +1336,7 @@ DROP TABLE "list";
 DROP TABLE "label";
 DROP TABLE "card";
 
-{-# START_FILE hie.yml #-}
+{-# START_FILE hie.yaml #-}
 cradle:
   stack:
     - path: "./app/Main.hs"
