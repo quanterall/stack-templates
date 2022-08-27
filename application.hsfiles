@@ -12,6 +12,7 @@ extra-deps:
   # nix-sha256: sha256-GKn9DqlG5TdJVoUXRaYxXN8UPxgSq/coswpc4O049Eg=
 
 nix:
+  enable: false
   packages: 
   - zlib
   - postgresql
